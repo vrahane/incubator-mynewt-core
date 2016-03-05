@@ -17,8 +17,7 @@
 # under the License.
 #
 
-.app.db
-.app
+.project
 bin
 obj
 tags
