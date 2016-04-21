@@ -94,7 +94,7 @@ err:
 static int
 nmgr_def_console_echo(struct nmgr_jbuf *njb)
 {
-    int echo_on = 1;
+    long long int echo_on = 1;
     int rc;
     struct json_attr_t attrs[3] = {
         [0] = {
@@ -328,7 +328,7 @@ nmgr_jbuf_write(void *arg, char *data, int len)
 
     rc = nmgr_rsp_extend(njb->njb_hdr, njb->njb_out_m, data, len);
     if (rc != 0) {
-        assert(0);
+        //assert(0);
         goto err;
     }
 
