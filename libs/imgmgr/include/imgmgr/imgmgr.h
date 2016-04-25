@@ -45,4 +45,9 @@ int imgr_ver_parse(char *src, struct image_version *ver);
  */
 int imgr_ver_str(struct image_version *ver, char *dst);
 
+/*
+ * Returns version number of current image (if available).
+ */
+int imgr_my_version(struct image_version *ver);
+
 #endif /* _IMGMGR_H */
