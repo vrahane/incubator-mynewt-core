@@ -70,7 +70,9 @@ os_stack_t shell_stack[SHELL_TASK_STACK_SIZE];
 os_stack_t newtmgr_stack[NEWTMGR_TASK_STACK_SIZE];
 
 struct log_handler log_cbmem_handler;
+struct log_handler log_cbmem_handler_task;
 struct log my_log;
+struct log task_log;
 
 static volatile int g_task2_loops;
 
@@ -115,7 +117,9 @@ static uint8_t test8;
 static uint8_t test8_shadow;
 static char test_str[32];
 static uint32_t cbmem_buf[MAX_CBMEM_BUF];
+static uint32_t cbmem_buf_task[MAX_CBMEM_BUF];
 struct cbmem cbmem;
+struct cbmem cbmem_task;
 
 static char *
 test_conf_get(int argc, char **argv, char *buf, int max_len)
@@ -205,6 +209,7 @@ task2_handler(void *arg)
 
         /* Increment # of times we went through task loop */
         ++g_task2_loops;
+        LOG_INFO(&task_log, LOG_MODULE_DEFAULT, "Task loops: %u", g_task2_loops);
 
         /* Wait for semaphore from ISR */
         os_sem_pend(&g_test_sem, OS_TIMEOUT_NEVER);
@@ -264,9 +269,12 @@ main(int argc, char **argv)
     assert(rc == 0);
 
     log_init();
-    cbmem_init(&cbmem, cbmem_buf, MAX_CBMEM_BUF);
+    cbmem_init(&cbmem, cbmem_buf, MAX_CBMEM_BUF/2);
+    cbmem_init(&cbmem_task, cbmem_buf_task, MAX_CBMEM_BUF/2);
     log_cbmem_handler_init(&log_cbmem_handler, &cbmem);
+    log_cbmem_handler_init(&log_cbmem_handler_task, &cbmem_task);
     log_register("log", &my_log, &log_cbmem_handler);
+    log_register("task_log", &task_log, &log_cbmem_handler_task);
 
     os_init();
 
