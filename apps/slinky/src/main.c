@@ -49,7 +49,7 @@ int init_tasks(void);
 /* Task 1 */
 #define TASK1_PRIO (1)
 #define TASK1_STACK_SIZE    OS_STACK_ALIGN(128)
-#define MAX_CBMEM_BUF 600
+#define MAX_CBMEM_BUF 300
 struct os_task task1;
 os_stack_t stack1[TASK1_STACK_SIZE];
 static volatile int g_task1_loops;
@@ -269,8 +269,8 @@ main(int argc, char **argv)
     assert(rc == 0);
 
     log_init();
-    cbmem_init(&cbmem, cbmem_buf, MAX_CBMEM_BUF/2);
-    cbmem_init(&cbmem_task, cbmem_buf_task, MAX_CBMEM_BUF/2);
+    cbmem_init(&cbmem, cbmem_buf, MAX_CBMEM_BUF);
+    cbmem_init(&cbmem_task, cbmem_buf_task, MAX_CBMEM_BUF);
     log_cbmem_handler_init(&log_cbmem_handler, &cbmem);
     log_cbmem_handler_init(&log_cbmem_handler_task, &cbmem_task);
     log_register("log", &my_log, &log_cbmem_handler);

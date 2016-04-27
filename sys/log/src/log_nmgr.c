@@ -139,7 +139,7 @@ log_encode_entries (struct log *log, struct json_encoder *encoder,
     json_encode_array_name(encoder, "entries");
     json_encode_array_start(encoder);
 
-    encode_off.eo_encoder = encoder;
+    encode_off.eo_encoder  = encoder;
     encode_off.eo_index    = index;
     encode_off.eo_ts       = ts;
 
