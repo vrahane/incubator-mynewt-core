@@ -37,6 +37,7 @@
 #include <string.h>
 #include <json/json.h>
 #include <flash_test/flash_test.h>
+#include <os/os_time.h>
 
 #ifdef ARCH_sim
 #include <mcu/mcu_sim.h>
@@ -48,15 +49,15 @@ int init_tasks(void);
 
 /* Task 1 */
 #define TASK1_PRIO (1)
-#define TASK1_STACK_SIZE    OS_STACK_ALIGN(128)
-#define MAX_CBMEM_BUF 300
+#define TASK1_STACK_SIZE    OS_STACK_ALIGN(192)
+#define MAX_CBMEM_BUF 200
 struct os_task task1;
 os_stack_t stack1[TASK1_STACK_SIZE];
 static volatile int g_task1_loops;
 
 /* Task 2 */
 #define TASK2_PRIO (2)
-#define TASK2_STACK_SIZE    OS_STACK_ALIGN(128)
+#define TASK2_STACK_SIZE    OS_STACK_ALIGN(192)
 struct os_task task2;
 os_stack_t stack2[TASK2_STACK_SIZE];
 
@@ -71,8 +72,10 @@ os_stack_t newtmgr_stack[NEWTMGR_TASK_STACK_SIZE];
 
 struct log_handler log_cbmem_handler;
 struct log_handler log_cbmem_handler_task;
+struct log_handler log_cbmem_handler_noise;
 struct log my_log;
 struct log task_log;
+struct log noise_stat;
 
 static volatile int g_task2_loops;
 
@@ -128,8 +131,10 @@ static uint8_t test8_shadow;
 static char test_str[32];
 static uint32_t cbmem_buf[MAX_CBMEM_BUF];
 static uint32_t cbmem_buf_task[MAX_CBMEM_BUF];
+static uint32_t cbmem_buf_noise[MAX_CBMEM_BUF];
 struct cbmem cbmem;
 struct cbmem cbmem_task;
+struct cbmem cbmem_noise;
 
 static char *
 test_conf_get(int argc, char **argv, char *buf, int max_len)
@@ -182,10 +187,19 @@ task1_handler(void *arg)
 {
     struct os_task *t;
     int prev_pin_state, curr_pin_state;
+    int cur_time;
+    int a;
+    int b;
+    int c;
+    struct os_timeval ot;
 
+    memset(&ot, 0, sizeof(struct os_timeval));
     /* Set the led pin for the E407 devboard */
     g_led_pin = LED_BLINK_PIN;
     hal_gpio_init_out(g_led_pin, 1);
+
+    os_gettimeofday(&ot, NULL);
+    srandom((int)ot.tv_sec);
 
     while (1) {
         t = os_sched_get_current_task();
@@ -200,8 +214,19 @@ task1_handler(void *arg)
         prev_pin_state = hal_gpio_read(g_led_pin);
         curr_pin_state = hal_gpio_toggle(g_led_pin);
         LOG_INFO(&my_log, LOG_MODULE_DEFAULT, "GPIO toggle from %u to %u",
-            prev_pin_state, curr_pin_state);
+                 prev_pin_state, curr_pin_state);
         STATS_INC(g_stats_gpio_toggle, toggles);
+
+        cur_time = os_time_get()/1000;
+
+        a = rand();
+        b = cur_time%100;
+        c = cur_time%10;
+
+        if (!c) {
+            LOG_INFO(&noise_stat, LOG_MODULE_DEFAULT, "a=%d, b=%d",
+                     a, b);
+        }
 
         /* Release semaphore to task 2 */
         os_sem_release(&g_test_sem);
@@ -282,10 +307,13 @@ main(int argc, char **argv)
     log_init();
     cbmem_init(&cbmem, cbmem_buf, MAX_CBMEM_BUF);
     cbmem_init(&cbmem_task, cbmem_buf_task, MAX_CBMEM_BUF);
+    cbmem_init(&cbmem_noise, cbmem_buf_noise, MAX_CBMEM_BUF);
     log_cbmem_handler_init(&log_cbmem_handler, &cbmem);
     log_cbmem_handler_init(&log_cbmem_handler_task, &cbmem_task);
+    log_cbmem_handler_init(&log_cbmem_handler_noise, &cbmem_noise);
     log_register("log", &my_log, &log_cbmem_handler);
     log_register("task_log", &task_log, &log_cbmem_handler_task);
+    log_register("noise_stat", &noise_stat, &log_cbmem_handler_noise);
 
     os_init();
 
