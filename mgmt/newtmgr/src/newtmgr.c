@@ -43,18 +43,36 @@ static struct os_task g_nmgr_task;
 /*
  * cbor buffer for newtmgr
  */
-static struct nmgr_cbuf {
-    struct mgmt_cbuf n_b;
-    struct CborMbufWriter writer;
-    struct CborMbufReader reader;
-    struct os_mbuf *n_out_m;
-} nmgr_task_cbuf;
+struct nmgr_cbuf nmgr_task_cbuf;
 
 static int
 nmgr_cbuf_init(struct nmgr_cbuf *njb)
 {
     memset(njb, 0, sizeof(*njb));
     return (0);
+}
+
+struct nmgr_hdr*
+nmgr_init_req(struct os_mbuf *m, struct nmgr_hdr *src)
+{
+    struct nmgr_hdr *hdr;
+
+    hdr = (struct nmgr_hdr *) os_mbuf_extend(m, sizeof(struct nmgr_hdr));
+    if (!hdr) {
+        return NULL;
+    }
+    memcpy(hdr, src, sizeof(*hdr));
+    hdr->nh_len = 0;
+    hdr->nh_flags = 0;
+    hdr->nh_op = src->nh_op;
+    hdr->nh_group = src->nh_group;
+    hdr->nh_seq = src->nh_seq;
+    hdr->nh_id = src->nh_id;
+    cbor_mbuf_writer_init(&nmgr_task_cbuf.writer, m);
+    cbor_encoder_init(&nmgr_task_cbuf.n_b.encoder, &nmgr_task_cbuf.writer.enc, 0);
+    nmgr_task_cbuf.n_out_m = m;
+
+    return hdr;
 }
 
 static struct nmgr_hdr*

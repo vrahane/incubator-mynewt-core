@@ -23,6 +23,8 @@
 #include <tinycbor/cbor.h>
 #include <inttypes.h>
 #include <os/os.h>
+#include "tinycbor/cbor_mbuf_writer.h"
+#include "tinycbor/cbor_mbuf_reader.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -72,6 +74,15 @@ int nmgr_transport_init(struct nmgr_transport *nt,
         nmgr_transport_out_func_t output_func,
         nmgr_transport_get_mtu_func_t get_mtu_func);
 int nmgr_rx_req(struct nmgr_transport *nt, struct os_mbuf *req);
+struct nmgr_hdr*
+nmgr_init_req(struct os_mbuf *m, struct nmgr_hdr *src);
+
+struct nmgr_cbuf {
+    struct mgmt_cbuf n_b;
+    struct CborMbufWriter writer;
+    struct CborMbufReader reader;
+    struct os_mbuf *n_out_m;
+};
 
 #ifdef __cplusplus
 }

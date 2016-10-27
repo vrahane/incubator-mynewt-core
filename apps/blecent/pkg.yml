@@ -31,5 +31,7 @@ pkg.deps:
     - net/nimble/host/services/gatt
     - net/nimble/host/store/ram
     - net/nimble/transport/ram
-    - sys/console/full
+    - sys/console/stub
     - libc/baselibc
+    - mgmt/mgmt
+    - mgmt/newtmgr

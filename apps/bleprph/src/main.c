@@ -29,6 +29,12 @@
 #include "console/console.h"
 #include "imgmgr/imgmgr.h"
 
+#include "mgmt/mgmt.h"
+#include "cborattr/cborattr.h"
+#include "tinycbor/cbor_cnt_writer.h"
+
+#include "uart/uart.h"
+
 /* BLE */
 #include "nimble/ble.h"
 #include "host/ble_hs.h"
@@ -51,6 +57,9 @@ struct os_task bleprph_task;
 bssnz_t os_stack_t bleprph_stack[BLEPRPH_STACK_SIZE];
 
 static int bleprph_gap_event(struct ble_gap_event *event, void *arg);
+
+/* For LED toggling */
+static int g_led_pin;
 
 /**
  * Logs information about a connection to the console.
@@ -84,13 +93,17 @@ bleprph_print_conn_desc(struct ble_gap_conn_desc *desc)
  *     o General discoverable mode.
  *     o Undirected connectable mode.
  */
-static void
+static int
 bleprph_advertise(void)
 {
     struct ble_gap_adv_params adv_params;
     struct ble_hs_adv_fields fields;
     const char *name;
     int rc;
+
+    if (ble_gap_adv_active()) {
+        return 0;
+    }
 
     /**
      *  Set the advertisement data included in our advertisements:
@@ -127,7 +140,7 @@ bleprph_advertise(void)
     rc = ble_gap_adv_set_fields(&fields);
     if (rc != 0) {
         BLEPRPH_LOG(ERROR, "error setting advertisement data; rc=%d\n", rc);
-        return;
+        return rc;
     }
 
     /* Begin advertising. */
@@ -138,8 +151,13 @@ bleprph_advertise(void)
                            &adv_params, bleprph_gap_event, NULL);
     if (rc != 0) {
         BLEPRPH_LOG(ERROR, "error enabling advertisement; rc=%d\n", rc);
-        return;
+        if (rc != BLE_HS_ENOMEM) {
+            assert(0);
+        }
+        return rc;
     }
+
+    return 0;
 }
 
 /**
@@ -176,10 +194,15 @@ bleprph_gap_event(struct ble_gap_event *event, void *arg)
         }
         BLEPRPH_LOG(INFO, "\n");
 
-        if (event->connect.status != 0) {
+        //if (event->connect.status != 0) {
             /* Connection failed; resume advertising. */
-            bleprph_advertise();
-        }
+        bleprph_advertise();
+        //}
+#if defined(BSP_nrf51_blenano)||defined(BSP_nrf52dk)
+        hal_gpio_clear(g_led_pin);
+#else
+        hal_gpio_set(g_led_pin);
+#endif
         return 0;
 
     case BLE_GAP_EVENT_DISCONNECT:
@@ -188,6 +211,11 @@ bleprph_gap_event(struct ble_gap_event *event, void *arg)
         BLEPRPH_LOG(INFO, "\n");
 
         /* Connection terminated; resume advertising. */
+#if defined(BSP_nrf51_blenano)||defined(BSP_nrf52dk)
+        hal_gpio_set(g_led_pin);
+#else
+        hal_gpio_clear(g_led_pin);
+#endif
         bleprph_advertise();
         return 0;
 
@@ -247,6 +275,106 @@ bleprph_on_sync(void)
     bleprph_advertise();
 }
 
+static char uart_rx_buf[15];
+static char uart_tx_buf[128];
+static int uart_rx_idx;
+static int uart_tx_idx;
+static int cmd_len;
+static struct uart_dev *udv;
+
+static int
+imgdemo_display(struct mgmt_cbuf *cb)
+{
+    int rc;
+    long long int id;
+
+    const struct cbor_attr_t attr[2] = {
+        [0] = {
+            .attribute = "x",
+            .type = CborAttrIntegerType,
+            .addr.integer = &id
+        },
+        [1] = {
+            .attribute = NULL
+        }
+    };
+
+    rc = cbor_read_object(&cb->it, attr);
+    if (rc) {
+        return rc;
+    }
+
+    console_printf("Central ID rxd:: id:%d\n", (int)id);
+
+    switch(id) {
+        case 1:
+            break;
+        case 2:
+            sprintf(uart_tx_buf, "fill 0,0,240,320,RED\xff\xff\xff");
+            break;
+        case 0:
+            sprintf(uart_tx_buf, "rest\xff\xff\xff");
+            //sprintf(uart_tx_buf, "rest\xff\xff\xff");
+            break;
+        default:
+            assert(0);
+    }
+
+    cmd_len = strlen(uart_tx_buf);
+
+    uart_tx_idx = 0;
+    uart_start_tx(udv);
+
+    return 0;
+}
+
+/*
+ * Called by UART driver to send out next character.
+ *
+ * Interrupts disabled when nmgr_uart_tx_char/nmgr_uart_rx_char are called.
+ */
+static int
+app_uart_tx_char(void *arg)
+{
+    if (uart_tx_idx < cmd_len) {
+        return uart_tx_buf[uart_tx_idx++];
+    } else {
+        return -1;
+    }
+}
+
+/*
+ * Receive a character from UART.
+ */
+static int
+app_uart_rx_char(void *arg, uint8_t data)
+{
+    uart_rx_buf[uart_rx_idx++] = data;
+    if (uart_rx_idx >= 7) {
+        uart_rx_idx = 0;
+        //memset(uart_rx_buf, 0, 7);
+    }
+
+    return 0;
+}
+
+static void
+app_uart_init(void)
+{
+    struct uart_conf uc = {
+        .uc_speed = 9600,
+        .uc_databits = 8,
+        .uc_stopbits = 1,
+        .uc_parity = UART_PARITY_NONE,
+        .uc_flow_ctl = UART_FLOW_CTL_NONE,
+        .uc_tx_char = app_uart_tx_char,
+        .uc_rx_char = app_uart_rx_char,
+        .uc_cb_arg = NULL
+    };
+
+    udv = (struct uart_dev *)os_dev_open("uart0", 0, &uc);
+}
+
 /**
  * Event loop for the main bleprph task.
  */
@@ -256,6 +384,17 @@ bleprph_task_handler(void *unused)
     struct os_event *ev;
     struct os_callout_func *cf;
     int rc;
+
+    /* Set the led pin for the devboard */
+    g_led_pin = LED_BLINK_PIN;
+    hal_gpio_init_out(g_led_pin, 1);
+#if defined(BSP_nrf51_blenano)||defined(BSP_nrf52dk)
+    hal_gpio_set(g_led_pin);
+#else
+    hal_gpio_clear(g_led_pin);
+#endif
+
+    app_uart_init();
 
     /* Activate the host.  This causes the host to synchronize with the
      * controller.
@@ -284,6 +423,37 @@ bleprph_task_handler(void *unused)
     }
 }
 
+static struct mgmt_group imgdemo_group;
+
+/* ORDER MATTERS HERE.
+ * Each element represents the command ID, referenced from newtmgr.
+ */
+static struct mgmt_handler imgdemo_group_handlers[] = {
+    [0] = {imgdemo_display, imgdemo_display}
+};
+
+/**
+ * Register nmgr group handlers.
+ * @return 0 on success; non-zero on failure
+ */
+static int
+imgdemo_register_group(void)
+{
+    int rc;
+
+    MGMT_GROUP_SET_HANDLERS(&imgdemo_group, imgdemo_group_handlers);
+    imgdemo_group.mg_group_id = MGMT_GROUP_ID_IMGDEMO;
+
+    rc = mgmt_group_register(&imgdemo_group);
+    if (rc) {
+        goto err;
+    }
+
+    return (0);
+err:
+    return (rc);
+}
+
 /**
  * main
  *
@@ -299,7 +469,7 @@ main(void)
     int rc;
 
     /* Set initial BLE device address. */
-    memcpy(g_dev_addr, (uint8_t[6]){0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a}, 6);
+    memcpy(g_dev_addr, (uint8_t[6]){0x0b, 0x0a, 0x0b, 0x0b, 0x00, 0x10}, 6);
 
     /* Initialize OS */
     sysinit();
@@ -327,7 +497,10 @@ main(void)
     assert(rc == 0);
 
     /* Set the default device name. */
-    rc = ble_svc_gap_device_name_set("nimble-bleprph");
+    rc = ble_svc_gap_device_name_set("runtime-10");
+    assert(rc == 0);
+
+    rc = imgdemo_register_group();
     assert(rc == 0);
 
     /* Start the OS */
@@ -338,3 +511,4 @@ main(void)
 
     return 0;
 }
+

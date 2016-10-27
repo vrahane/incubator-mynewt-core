@@ -664,6 +664,12 @@ peer_disc_all(uint16_t conn_handle, peer_disc_fn *disc_cb, void *disc_cb_arg)
 }
 
 int
+peer_empty(void)
+{
+    return SLIST_EMPTY(&peers);
+}
+
+int
 peer_delete(uint16_t conn_handle)
 {
     struct peer_svc *svc;

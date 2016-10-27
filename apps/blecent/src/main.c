@@ -24,6 +24,10 @@
 #include "bsp/bsp.h"
 #include "os/os.h"
 
+#include "hal/hal_gpio.h"
+#include "mgmt/mgmt.h"
+#include "uart/uart.h"
+
 /* BLE */
 #include "nimble/ble.h"
 #include "controller/ble_ll.h"
@@ -42,8 +46,20 @@
 /* Application-specified header. */
 #include "blecent.h"
 
+#include "newtmgr/newtmgr.h"
+
+extern struct nmgr_cbuf nmgr_task_cbuf;
+
+static int cmd;
+static uint16_t xoff;
+static uint16_t yoff;
+
+
 /** Log data. */
 struct log blecent_log;
+
+/* For LED toggling */
+static int g_led_pin;
 
 /** blecent task settings. */
 #define BLECENT_TASK_PRIO           1
@@ -54,190 +70,38 @@ struct os_task blecent_task;
 bssnz_t os_stack_t blecent_stack[BLECENT_STACK_SIZE];
 
 /** Our global device address (public) */
-uint8_t g_dev_addr[BLE_DEV_ADDR_LEN] = {0x0c, 0x0c, 0x0c, 0x0c, 0x0c, 0x0c};
+uint8_t g_dev_addr[BLE_DEV_ADDR_LEN] = {0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a};
 
 /** Our random address (in case we need it) */
 uint8_t g_random_addr[BLE_DEV_ADDR_LEN];
 
 static int blecent_gap_event(struct ble_gap_event *event, void *arg);
 
-/**
- * Application callback.  Called when the read of the ANS Supported New Alert
- * Category characteristic has completed.
- */
-static int
-blecent_on_read(uint16_t conn_handle,
-                const struct ble_gatt_error *error,
-                struct ble_gatt_attr *attr,
-                void *arg)
-{
-    BLECENT_LOG(INFO, "Read complete; status=%d conn_handle=%d", error->status,
-                conn_handle);
-    if (error->status == 0) {
-        BLECENT_LOG(INFO, " attr_handle=%d value=", attr->handle);
-        print_mbuf(attr->om);
-    }
-    BLECENT_LOG(INFO, "\n");
+struct ble_gap_conn_entry {
+    uint8_t addr_type;
+    uint8_t addr[6];
+    uint8_t connected;
+    uint16_t conn_handle;
+};
 
-    return 0;
-}
-
-/**
- * Application callback.  Called when the write to the ANS Alert Notification
- * Control Point characteristic has completed.
- */
-static int
-blecent_on_write(uint16_t conn_handle,
-                 const struct ble_gatt_error *error,
-                 struct ble_gatt_attr *attr,
-                 void *arg)
-{
-    BLECENT_LOG(INFO, "Write complete; status=%d conn_handle=%d "
-                      "attr_handle=%d\n",
-                error->status, conn_handle, attr->handle);
-
-    return 0;
-}
-
-/**
- * Application callback.  Called when the attempt to subscribe to notifications
- * for the ANS Unread Alert Status characteristic has completed.
- */
-static int
-blecent_on_subscribe(uint16_t conn_handle,
-                     const struct ble_gatt_error *error,
-                     struct ble_gatt_attr *attr,
-                     void *arg)
-{
-    BLECENT_LOG(INFO, "Subscribe complete; status=%d conn_handle=%d "
-                      "attr_handle=%d\n",
-                error->status, conn_handle, attr->handle);
-
-    return 0;
-}
-
-/**
- * Performs three concurrent GATT operations against the specified peer:
- * 1. Reads the ANS Supported New Alert Category characteristic.
- * 2. Writes the ANS Alert Notification Control Point characteristic.
- * 3. Subscribes to notifications for the ANS Unread Alert Status
- *    characteristic.
- *
- * If the peer does not support a required service, characteristic, or
- * descriptor, then the peer lied when it claimed support for the alert
- * notification service!  When this happens, or if a GATT procedure fails,
- * this function immediately terminates the connection.
- */
-static void
-blecent_read_write_subscribe(const struct peer *peer)
-{
-    const struct peer_chr *chr;
-    const struct peer_dsc *dsc;
-    uint8_t value[2];
-    int rc;
-
-    /* Read the supported-new-alert-category characteristic. */
-    chr = peer_chr_find_uuid(peer,
-                             BLE_UUID16(BLECENT_SVC_ALERT_UUID),
-                             BLE_UUID16(BLECENT_CHR_SUP_NEW_ALERT_CAT_UUID));
-    if (chr == NULL) {
-        BLECENT_LOG(ERROR, "Error: Peer doesn't support the Supported New "
-                           "Alert Category characteristic\n");
-        goto err;
-    }
-
-    rc = ble_gattc_read(peer->conn_handle, chr->chr.val_handle,
-                        blecent_on_read, NULL);
-    if (rc != 0) {
-        BLECENT_LOG(ERROR, "Error: Failed to read characteristic; rc=%d\n",
-                    rc);
-        goto err;
-    }
-
-    /* Write two bytes (99, 100) to the alert-notification-control-point
-     * characteristic.
-     */
-    chr = peer_chr_find_uuid(peer,
-                             BLE_UUID16(BLECENT_SVC_ALERT_UUID),
-                             BLE_UUID16(BLECENT_CHR_ALERT_NOT_CTRL_PT));
-    if (chr == NULL) {
-        BLECENT_LOG(ERROR, "Error: Peer doesn't support the Alert "
-                           "Notification Control Point characteristic\n");
-        goto err;
-    }
-
-    value[0] = 99;
-    value[1] = 100;
-    rc = ble_gattc_write_flat(peer->conn_handle, chr->chr.val_handle,
-                              value, sizeof value, blecent_on_write, NULL);
-    if (rc != 0) {
-        BLECENT_LOG(ERROR, "Error: Failed to write characteristic; rc=%d\n",
-                    rc);
-    }
-
-    /* Subscribe to notifications for the Unread Alert Status characteristic.
-     * A central enables notifications by writing two bytes (1, 0) to the
-     * characteristic's client-characteristic-configuration-descriptor (CCCD).
-     */
-    dsc = peer_dsc_find_uuid(peer,
-                             BLE_UUID16(BLECENT_SVC_ALERT_UUID),
-                             BLE_UUID16(BLECENT_CHR_UNR_ALERT_STAT_UUID),
-                             BLE_UUID16(BLE_GATT_DSC_CLT_CFG_UUID16));
-    if (dsc == NULL) {
-        BLECENT_LOG(ERROR, "Error: Peer lacks a CCCD for the Unread Alert "
-                           "Status characteristic\n");
-        goto err;
-    }
-
-    value[0] = 1;
-    value[1] = 0;
-    rc = ble_gattc_write_flat(peer->conn_handle, dsc->dsc.handle,
-                              value, sizeof value, blecent_on_subscribe, NULL);
-    if (rc != 0) {
-        BLECENT_LOG(ERROR, "Error: Failed to subscribe to characteristic; "
-                           "rc=%d\n", rc);
-        goto err;
-    }
-
-    return;
-
-err:
-    /* Terminate the connection. */
-    ble_gap_terminate(peer->conn_handle, BLE_ERR_REM_USER_CONN_TERM);
-}
-
-/**
- * Called when service discovery of the specified peer has completed.
- */
-static void
-blecent_on_disc_complete(const struct peer *peer, int status, void *arg)
-{
-
-    if (status != 0) {
-        /* Service discovery failed.  Terminate the connection. */
-        BLECENT_LOG(ERROR, "Error: Service discovery failed; status=%d "
-                           "conn_handle=%d\n", status, peer->conn_handle);
-        ble_gap_terminate(peer->conn_handle, BLE_ERR_REM_USER_CONN_TERM);
-        return;
-    }
-
-    /* Service discovery has completed successfully.  Now we have a complete
-     * list of services, characteristics, and descriptors that the peer
-     * supports.
-     */
-    BLECENT_LOG(ERROR, "Service discovery complete; status=%d "
-                       "conn_handle=%d\n", status, peer->conn_handle);
-
-    /* Now perform three concurrent GATT procedures against the peer: read,
-     * write, and subscribe to notifications.
-     */
-    blecent_read_write_subscribe(peer);
-}
+struct ble_gap_conn_entry peer_white_list[] =
+    {
+     {BLE_ADDR_TYPE_PUBLIC, {0x0b, 0x0a, 0x0b, 0x0b, 0x00, 0x01}, 0},
+     {BLE_ADDR_TYPE_PUBLIC, {0x0b, 0x0a, 0x0b, 0x0b, 0x00, 0x02}, 0},
+     {BLE_ADDR_TYPE_PUBLIC, {0x0b, 0x0a, 0x0b, 0x0b, 0x00, 0x03}, 0},
+     {BLE_ADDR_TYPE_PUBLIC, {0x0b, 0x0a, 0x0b, 0x0b, 0x00, 0x04}, 0},
+     {BLE_ADDR_TYPE_PUBLIC, {0x0b, 0x0a, 0x0b, 0x0b, 0x00, 0x05}, 0},
+     {BLE_ADDR_TYPE_PUBLIC, {0x0b, 0x0a, 0x0b, 0x0b, 0x00, 0x06}, 0},
+     {BLE_ADDR_TYPE_PUBLIC, {0x0b, 0x0a, 0x0b, 0x0b, 0x00, 0x07}, 0},
+     {BLE_ADDR_TYPE_PUBLIC, {0x0b, 0x0a, 0x0b, 0x0b, 0x00, 0x08}, 0},
+     {BLE_ADDR_TYPE_PUBLIC, {0x0b, 0x0a, 0x0b, 0x0b, 0x00, 0x09}, 0},
+     {BLE_ADDR_TYPE_PUBLIC, {0x0b, 0x0a, 0x0b, 0x0b, 0x00, 0x10}, 0}
+    };
 
 /**
  * Initiates the GAP general discovery procedure.
  */
-static void
+static int
 blecent_scan(void)
 {
     struct ble_gap_disc_params disc_params;
@@ -266,6 +130,8 @@ blecent_scan(void)
         BLECENT_LOG(ERROR, "Error initiating GAP discovery procedure; rc=%d\n",
                     rc);
     }
+
+    return rc;
 }
 
 /**
@@ -306,7 +172,8 @@ static void
 blecent_connect_if_interesting(const struct ble_gap_disc_desc *disc)
 {
     int rc;
-
+    int i;
+    
     /* Don't do anything if we don't care about this advertiser. */
     if (!blecent_should_connect(disc)) {
         return;
@@ -322,13 +189,63 @@ blecent_connect_if_interesting(const struct ble_gap_disc_desc *disc)
     /* Try to connect the the advertiser.  Allow 30 seconds (30000 ms) for
      * timeout.
      */
-    rc = ble_gap_connect(BLE_ADDR_TYPE_PUBLIC, disc->addr_type, disc->addr,
-                         30000, NULL, blecent_gap_event, NULL);
-    if (rc != 0) {
-        BLECENT_LOG(ERROR, "Error: Failed to connect to device; addr_type=%d "
-                           "addr=%s\n", disc->addr_type, addr_str(disc->addr));
-        return;
+
+    for (i=0; i<10; i++) {
+
+        if (!memcmp(peer_white_list[i].addr, disc->addr, 6) && peer_white_list[i].connected != 1 && cmd == 2) {
+
+            ble_gap_connect(BLE_ADDR_TYPE_PUBLIC, BLE_HCI_CONN_PEER_ADDR_PUBLIC, peer_white_list[i].addr,
+                            30000, NULL, blecent_gap_event, NULL);
+            peer_white_list[i].connected = 1;
+        }
     }
+}
+
+int
+nmgr_create_req(struct os_mbuf **req)
+{
+    struct nmgr_hdr *req_hdr;
+    int rc;
+
+    rc = 0;
+    req_hdr = NULL;
+
+    *req = os_msys_get_pkthdr(512, OS_MBUF_USRHDR_LEN(*req));
+    if (!*req) {
+        rc = os_mbuf_copydata(*req, 0, sizeof(*req_hdr), req_hdr);
+        if (rc < 0) {
+            assert(0);
+            goto err;
+        }
+    }
+
+    req_hdr = nmgr_init_req(*req, req_hdr);
+    req_hdr->nh_id = NMGR_OP_READ;
+    req_hdr->nh_group = MGMT_GROUP_ID_IMGDEMO;
+    if (!req_hdr) {
+        assert(0);
+        rc = MGMT_ERR_ENOMEM;
+        goto err;
+    }
+
+    CborError g_err = CborNoError;
+    CborEncoder *penc = &nmgr_task_cbuf.n_b.encoder;
+    CborEncoder req_cbor;
+    g_err |= cbor_encoder_create_map(penc, &req_cbor, CborIndefiniteLength);
+    g_err |= cbor_encode_text_stringz(&req_cbor, "x");
+    g_err |= cbor_encode_int(&req_cbor, g_dev_addr[5]%3);
+    //g_err |= cbor_encode_text_stringz(&req_cbor, "y");
+    //g_err |= cbor_encode_int(&req_cbor, yoff);
+    g_err |= cbor_encoder_close_container(penc, &req_cbor);
+
+    req_hdr->nh_len += cbor_encode_bytes_written(&nmgr_task_cbuf.n_b.encoder);
+
+    //req_hdr->nh_flags |= NMGR_F_CBOR_RSP_COMPLETE;
+    req_hdr->nh_len = htons(req_hdr->nh_len);
+    req_hdr->nh_group = htons(req_hdr->nh_group);
+
+err:
+    return rc;
 }
 
 /**
@@ -350,6 +267,11 @@ blecent_gap_event(struct ble_gap_event *event, void *arg)
 {
     struct ble_gap_conn_desc desc;
     int rc;
+    int rand_val;
+    int i;
+
+    xoff = 0;
+    yoff = 0;
 
     switch (event->type) {
     case BLE_GAP_EVENT_DISC:
@@ -361,6 +283,7 @@ blecent_gap_event(struct ble_gap_event *event, void *arg)
         return 0;
 
     case BLE_GAP_EVENT_CONNECT:
+
         /* A new connection was established or a connection attempt failed. */
         if (event->connect.status == 0) {
             /* Connection successfully established. */
@@ -371,6 +294,23 @@ blecent_gap_event(struct ble_gap_event *event, void *arg)
             print_conn_desc(&desc);
             BLECENT_LOG(INFO, "\n");
 
+            if (peer_empty()) {
+                /* Image of 320 * 240 size */
+                rand_val = rand();
+                xoff = rand_val%(320/4) * 4;
+                yoff = rand_val%(240/3) * 3;
+            } else {
+                xoff = (xoff+1)%(320/4) * 4;
+                yoff = (yoff+1)%(240/3) * 3;
+            }
+
+            for (i=0; i<10; i++) {
+                if (!memcmp(peer_white_list[i].addr, desc.peer_id_addr, 6) && cmd == 2) {
+                    peer_white_list[i].connected = 1;
+                    peer_white_list[i].conn_handle =  desc.conn_handle;
+                }
+            }
+
             /* Remember peer. */
             rc = peer_add(event->connect.conn_handle);
             if (rc != 0) {
@@ -378,20 +318,17 @@ blecent_gap_event(struct ble_gap_event *event, void *arg)
                 return 0;
             }
 
-            /* Perform service discovery. */
-            rc = peer_disc_all(event->connect.conn_handle,
-                               blecent_on_disc_complete, NULL);
-            if (rc != 0) {
-                BLECENT_LOG(ERROR, "Failed to discover services; rc=%d\n", rc);
-                return 0;
-            }
         } else {
             /* Connection attempt failed; resume scanning. */
             BLECENT_LOG(ERROR, "Error: Connection failed; status=%d\n",
                         event->connect.status);
-            blecent_scan();
         }
 
+        rc = blecent_scan();
+        assert(rc == 0);
+        /* Try to connect the the advertiser.  Allow 30 seconds (30000 ms) for
+         * timeout.
+         */
         return 0;
 
     case BLE_GAP_EVENT_DISCONNECT:
@@ -400,11 +337,20 @@ blecent_gap_event(struct ble_gap_event *event, void *arg)
         print_conn_desc(&event->disconnect.conn);
         BLECENT_LOG(INFO, "\n");
 
+        for (i=0; i<10; i++) {
+            if (!memcmp(peer_white_list[i].addr, event->disconnect.conn.peer_id_addr, 6)) {
+                peer_white_list[i].connected = 0;
+                peer_white_list[i].conn_handle = 0;
+            }
+        }
+
         /* Forget about peer. */
         peer_delete(event->disconnect.conn.conn_handle);
-
-        /* Resume scanning. */
-        blecent_scan();
+        /* Try to connect the the advertiser.  Allow 30 seconds (30000 ms) for
+         * timeout.
+         */
+        rc = blecent_scan();
+        assert(rc == 0 || rc == BLE_HS_EBUSY || rc == BLE_HS_EALREADY);
         return 0;
 
     case BLE_GAP_EVENT_ENC_CHANGE:
@@ -455,6 +401,94 @@ blecent_on_sync(void)
     blecent_scan();
 }
 
+static struct os_callout_func blescan_timer;
+
+
+static void
+blescan_tmo(void *unused)
+{
+    int rc = 0;
+    if (unused != (void *)&blecent_evq) {
+        return;
+    }
+    blecent_scan();
+    rc = os_callout_reset(&blescan_timer.cf_c, OS_TICKS_PER_SEC/2);
+    assert(rc == 0);
+}
+
+static char uart_rx_buf[15];
+static char uart_tx_buf[128];
+static int uart_rx_idx;
+static int uart_tx_idx;
+static int cmd_len;
+static struct uart_dev *udv;
+
+/*
+ * Called by UART driver to send out next character.
+ *
+ * Interrupts disabled when nmgr_uart_tx_char/nmgr_uart_rx_char are called.
+ */
+static int
+app_uart_tx_char(void *arg)
+{
+    if (uart_tx_idx < cmd_len) {
+        return uart_tx_buf[uart_tx_idx++];
+    } else {
+        return -1;
+    }
+}
+
+/*
+ * Receive a character from UART.
+ */
+static int
+app_uart_rx_char(void *arg, uint8_t data)
+{
+    int rc;
+    struct os_mbuf *m_req;
+    int i;
+
+    rc = 0;
+    m_req = NULL;
+    uart_rx_buf[uart_rx_idx++] = data;
+    if (uart_rx_idx >= 7) {
+        uart_rx_idx = 0;
+        //memset(uart_rx_buf, 0, 7);
+        cmd = uart_rx_buf[2];
+        if (cmd == 3) {
+            rc = nmgr_create_req(&m_req);
+            assert(m_req);
+            for (i=0; i<10; i++) {
+                /* Using hardcoded nmgr attribute handle */
+                if (peer_white_list[i].connected) {
+                    rc = ble_gattc_write_no_rsp(peer_white_list[i].conn_handle, 18, m_req);
+                }
+            }
+        }
+    }
+
+    rc = 0;
+    return rc;
+}
+
+static void
+app_uart_init(void)
+{
+    struct uart_conf uc = {
+        .uc_speed = 9600,
+        .uc_databits = 8,
+        .uc_stopbits = 1,
+        .uc_parity = UART_PARITY_NONE,
+        .uc_flow_ctl = UART_FLOW_CTL_NONE,
+        .uc_tx_char = app_uart_tx_char,
+        .uc_rx_char = app_uart_rx_char,
+        .uc_cb_arg = NULL
+    };
+
+    udv = (struct uart_dev *)os_dev_open("uart0", 0, &uc);
+    uart_rx_idx = 0;
+}
+
 /**
  * Event loop for the main blecent task.
  */
@@ -469,6 +503,24 @@ blecent_task_handler(void *unused)
      * controller.
      */
     rc = ble_hs_start();
+    assert(rc == 0);
+
+    srand(0);
+
+    /* Set the led pin for the devboard */
+    g_led_pin = LED_BLINK_PIN;
+    hal_gpio_init_out(g_led_pin, 1);
+#if defined(BSP_nrf51_blenano)||defined(BSP_nrf52dk)
+    hal_gpio_clear(g_led_pin);
+#else
+    hal_gpio_set(g_led_pin);
+#endif
+    /* XXXXXXX Hacky stuff */
+    app_uart_init();
+
+    os_callout_func_init(&blescan_timer, &blecent_evq,
+                         blescan_tmo, &blecent_evq);
+    rc = os_callout_reset(&blescan_timer.cf_c, OS_TICKS_PER_SEC/2);
     assert(rc == 0);
 
     while (1) {
