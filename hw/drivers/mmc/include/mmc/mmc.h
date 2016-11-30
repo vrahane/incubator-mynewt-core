@@ -21,7 +21,6 @@
 #define __MMC_H__
 
 #include <os/os_dev.h>
-#include <disk/disk.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -30,68 +29,24 @@ extern "C" {
 /**
  * MMC driver errors.
  */
-#define MMC_OK                (0)
-#define MMC_CARD_ERROR        (-1)  /* Is there a card installed? */
-#define MMC_READ_ERROR        (-2)
-#define MMC_WRITE_ERROR       (-3)
-#define MMC_TIMEOUT           (-4)
-#define MMC_PARAM_ERROR       (-5)
-#define MMC_CRC_ERROR         (-6)
-#define MMC_DEVICE_ERROR      (-7)
-#define MMC_RESPONSE_ERROR    (-8)
-#define MMC_VOLTAGE_ERROR     (-9)
-#define MMC_INVALID_COMMAND   (-10)
-#define MMC_ERASE_ERROR       (-11)
-#define MMC_ADDR_ERROR        (-12)
-
-extern struct disk_ops mmc_ops;
+#define MMC_OK              (0)
+#define MMC_CARD_ERROR      (1)  /* Is there a card installed? */
+#define MMC_TIMEOUT         (2)
 
 /**
  * Initialize the MMC driver
  *
  * @param spi_num Number of the SPI channel to be used by MMC
  * @param spi_cfg Low-level device specific SPI configuration
- * @param ss_pin GPIO number of the SS pin
+ * @param ss_pin Number of SS pin if SW controlled, -1 otherwise
  *
  * @return 0 on success, non-zero on failure
  */
 int
 mmc_init(int spi_num, void *spi_cfg, int ss_pin);
 
-/**
- * Read data from MMC
- *
- * @param mmc_id Id of the MMC device (currently must be 0)
- * @param addr Disk address (in bytes) to be read from
- * @param buf Buffer where data should be copied to
- * @param len Amount of data to read/copy
- *
- * @return 0 on success, non-zero on failure
- */
-int
-mmc_read(uint8_t mmc_id, uint32_t addr, void *buf, uint32_t len);
-
-/**
- * Write data to the MMC
- *
- * @param mmc_id Id of the MMC device (currently must be 0)
- * @param addr Disk address (in bytes) to be written to
- * @param buf Buffer where data should be copied from
- * @param len Amount of data to copy/write
- *
- * @return 0 on success, non-zero on failure
- */
-int
-mmc_write(uint8_t mmc_id, uint32_t addr, const void *buf, uint32_t len);
-
-/**
- * TODO
- */
-int
-mmc_ioctl(uint8_t mmc_id, uint32_t cmd, void *arg);
-
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* __MMC_H__ */
+#endif /* __ADC_H__ */
