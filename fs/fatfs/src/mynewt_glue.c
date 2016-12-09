@@ -328,8 +328,7 @@ fatfs_read(struct fs_file *fs_file, uint32_t len, void *out_data,
     FIL *file = ((struct fatfs_file *) fs_file)->file;
     UINT uint_len;
 
-    res = f_read(file, out_data, len, &uint_len);
-    *out_len = uint_len;
+    res = f_read(file, out_data, len, (UINT *)out_len);
     return fatfs_to_vfs_error(res);
 }
 
