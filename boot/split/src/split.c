@@ -89,12 +89,7 @@ split_app_active_set(int active)
 int
 split_mode_set(split_mode_t split_mode)
 {
-    /* XXX: For now, cast this as an integer.  This value should either be
-     * treated as an enumeration generally (i.e. not read directly and assigned
-     * from values in flash), or switched to a native type of integer.  However,
-     * this is not a high priority change, so just cast it for now.
-     */
-    if ((int) split_mode < 0 || (int) split_mode >= SPLIT_MODE_CNT) {
+    if (split_mode >= (split_mode_t) SPLIT_MODE_CNT) {
         return SYS_EINVAL;
     }
 
