@@ -29,6 +29,8 @@
 #include <log/log.h>
 #include <stats/stats.h>
 #include <config/config.h>
+#include <sensor/sensor.h>
+#include <sim/sim_accel.h>
 #include "flash_map/flash_map.h"
 #include <hal/hal_system.h>
 #if MYNEWT_VAL(SPLIT_LOADER)
@@ -101,6 +103,13 @@ static char test_str[32];
 static uint32_t cbmem_buf[MAX_CBMEM_BUF];
 static struct cbmem cbmem;
 
+<<<<<<< 48bf270c92057d651932964255099b7b743c5a17
+=======
+static struct os_eventq slinky_evq;
+
+struct sim_accel sim_accel_sensor;
+
+>>>>>>> add sensor API, interim commit.  Things are working in simulated mode to register and list sensors.
 static char *
 test_conf_get(int argc, char **argv, char *buf, int max_len)
 {
@@ -286,10 +295,17 @@ main(int argc, char **argv)
     }
 #endif
 
-    /*
-     * As the last thing, process events from default event queue.
-     */
-    while (1) {
-        os_eventq_run(os_eventq_dflt_get());
-    }
+    init_tasks();
+
+    sensor_pkg_init();
+
+    os_dev_create((struct os_dev *) &sim_accel_sensor, "simaccel0",
+            OS_DEV_INIT_KERNEL, OS_DEV_INIT_PRIMARY, sim_accel_init, NULL);
+
+    os_start();
+
+    /* os start should never return. If it does, this should be an error */
+    assert(0);
+
+    return rc;
 }
