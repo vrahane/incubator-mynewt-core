@@ -138,7 +138,7 @@ bletiny_print_adv_fields(const struct ble_hs_adv_fields *fields)
     uint8_t *u8p;
     int i;
 
-    if (fields->flags != 0) {
+    if (fields->flags_is_present) {
         console_printf("    flags=0x%02x:\n", fields->flags);
 
         if (!(fields->flags & BLE_HS_ADV_F_DISC_LTD) &&
