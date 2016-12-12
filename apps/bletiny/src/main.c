@@ -921,8 +921,8 @@ bletiny_gap_event(struct ble_gap_event *event, void *arg)
     case BLE_GAP_EVENT_DISC:
         console_printf("received advertisement; event_type=%d rssi=%d "
                        "addr_type=%d addr=", event->disc.event_type,
-                       event->disc.rssi, event->disc.addr.type);
-        print_addr(event->disc.addr.val);
+                       event->disc.rssi, event->disc.addr_type);
+        print_addr(event->disc.addr);
 
         /*
          * There is no adv data to print in case of connectable
