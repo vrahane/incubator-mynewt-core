@@ -219,7 +219,7 @@ coap_notify_observers(oc_resource_t *resource,
         response.response_buffer = &response_buffer;
         request.resource = resource;
         request.response = &response;
-        oc_rep_new(m);
+        oc_rep_new(buffer, COAP_MAX_BLOCK_SIZE);
         resource->get_handler(&request, resource->default_interface);
         response_buf = &response_buffer;
         if (response_buf->code == OC_IGNORE) {

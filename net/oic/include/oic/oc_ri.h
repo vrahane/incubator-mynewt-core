@@ -97,13 +97,13 @@ typedef enum {
 
 typedef struct oc_resource oc_resource_t;
 
-typedef struct oc_request {
-    oc_endpoint_t *origin;
-    oc_resource_t *resource;
-    const char *query;
-    int query_len;
-    oc_response_t *response;
-    struct coap_packet_rx *packet;
+typedef struct {
+  oc_endpoint_t *origin;
+  oc_resource_t *resource;
+  const char *query;
+  int query_len;
+  oc_response_t *response;
+  void *packet;
 } oc_request_t;
 
 typedef void (*oc_request_handler_t)(oc_request_t *, oc_interface_mask_t);
