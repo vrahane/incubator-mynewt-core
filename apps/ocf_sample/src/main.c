@@ -66,8 +66,7 @@ put_light(oc_request_t *request, oc_interface_mask_t interface)
 {
     bool state;
     int len;
-    uint16_t data_off;
-    struct os_mbuf *m;
+    const uint8_t *data;
     struct cbor_attr_t attrs[] = {
         [0] = {
             .attribute = "state",
@@ -81,8 +80,8 @@ put_light(oc_request_t *request, oc_interface_mask_t interface)
 
     printf("PUT_light:\n");
 
-    len = coap_get_payload(request->packet, &m, &data_off);
-    if (cbor_read_mbuf_attrs(m, data_off, len, attrs)) {
+    len = coap_get_payload(request->packet, &data);
+    if (cbor_read_flat_attrs(data, len, attrs)) {
         oc_send_response(request, OC_STATUS_BAD_REQUEST);
     } else {
         printf("value: %d\n", state);
