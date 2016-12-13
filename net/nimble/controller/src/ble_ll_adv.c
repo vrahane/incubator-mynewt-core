@@ -1276,8 +1276,7 @@ ble_ll_adv_conn_req_rxd(uint8_t *rxbuf, struct ble_mbuf_hdr *hdr,
 
         /* Try to start slave connection. If successful, stop advertising */
         pyld_len = rxbuf[1] & BLE_ADV_PDU_HDR_LEN_MASK;
-        endtime = hdr->beg_cputime +
-            os_cputime_usecs_to_ticks(BLE_TX_DUR_USECS_M(pyld_len));
+        endtime = hdr->beg_cputime + BLE_TX_DUR_USECS_M(pyld_len);
         valid = ble_ll_conn_slave_start(rxbuf, endtime, addr_type, hdr);
         if (valid) {
             ble_ll_adv_sm_stop(advsm);
@@ -1664,7 +1663,7 @@ ble_ll_adv_send_conn_comp_ev(struct ble_ll_conn_sm *connsm,
         evbuf[2] = BLE_HCI_LE_SUBEV_ADV_STATE_CHG;
         evbuf[3] = advsm->adv_instance;
         evbuf[4] = 0x00;    /* status code */
-        put_le16(evbuf + 5, connsm->conn_handle);
+        htole16(evbuf + 5, connsm->conn_handle);
         ble_ll_hci_event_send(evbuf);
     }
 #else

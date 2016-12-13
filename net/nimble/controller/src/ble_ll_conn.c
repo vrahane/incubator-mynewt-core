@@ -1936,32 +1936,6 @@ ble_ll_conn_event_end(struct os_event *ev)
         }
     }
 
-    /*
-     * This is definitely not perfect but hopefully will be fine in regards to
-     * the specification. We check the supervision timer at connection event
-     * end. If the next connection event is going to start past the supervision
-     * timeout we end the connection here. I guess this goes against the spec
-     * in two ways:
-     * 1) We are actually causing a supervision timeout before the time
-     * specified. However, this is really a moot point because the supervision
-     * timeout would have expired before we could possibly receive a packet.
-     * 2) We may end the supervision timeout a bit later than specified as
-     * we only check this at event end and a bad CRC could cause us to continue
-     * the connection event longer than the supervision timeout. Given that two
-     * bad CRC's consecutively ends the connection event, I dont regard this as
-     * a big deal but it could cause a slightly longer supervision timeout.
-     */
-    if (connsm->conn_state == BLE_LL_CONN_STATE_CREATED) {
-        tmo = (uint32_t)connsm->conn_itvl * BLE_LL_CONN_ITVL_USECS * 6UL;
-    } else {
-        tmo = connsm->supervision_tmo * BLE_HCI_CONN_SPVN_TMO_UNITS * 1000UL;
-    }
-    tmo = os_cputime_usecs_to_ticks(tmo);
-    if ((int32_t)(connsm->anchor_point - connsm->last_rxd_pdu_cputime) >= tmo) {
-        ble_ll_conn_end(connsm, BLE_ERR_CONN_SPVN_TMO);
-        return;
-    }
-
     /* Log event end */
     ble_ll_log(BLE_LL_LOG_ID_CONN_EV_END, connsm->conn_handle,
                connsm->event_cntr, connsm->conn_sch.start_time);
@@ -2217,8 +2191,7 @@ ble_ll_init_rx_pkt_in(uint8_t *rxbuf, struct ble_mbuf_hdr *ble_hdr)
         g_ble_ll_conn_create_sm = NULL;
         ble_ll_scan_sm_stop(0);
         payload_len = rxbuf[1] & BLE_ADV_PDU_HDR_LEN_MASK;
-        endtime = ble_hdr->beg_cputime +
-            os_cputime_usecs_to_ticks(BLE_TX_DUR_USECS_M(payload_len));
+        endtime = ble_hdr->beg_cputime + BLE_TX_DUR_USECS_M(payload_len);
         ble_ll_conn_created(connsm, endtime, NULL);
     } else {
         ble_ll_scan_chk_resume();

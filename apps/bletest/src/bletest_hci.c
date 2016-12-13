@@ -477,8 +477,8 @@ bletest_hci_le_set_multi_adv_params(struct hci_multi_adv_params *adv,
     }
 
     dst[0] = BLE_HCI_MULTI_ADV_PARAMS;
-    put_le16(dst + 1, adv->adv_itvl_min);
-    put_le16(dst + 3, adv->adv_itvl_max);
+    htole16(dst + 1, adv->adv_itvl_min);
+    htole16(dst + 3, adv->adv_itvl_max);
     dst[5] = adv->adv_type;
     dst[6] = adv->own_addr_type;
     memcpy(dst + 7, adv->own_addr, BLE_DEV_ADDR_LEN);

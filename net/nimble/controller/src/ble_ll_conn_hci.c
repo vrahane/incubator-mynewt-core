@@ -180,7 +180,7 @@ ble_ll_conn_comp_event_send(struct ble_ll_conn_sm *connsm, uint8_t status,
         evbuf[3] = status;
 
         if (connsm) {
-            put_le16(evbuf + 4, connsm->conn_handle);
+            htole16(evbuf + 4, connsm->conn_handle);
 
             evbuf[6] = connsm->conn_role - 1;
             peer_addr_type = connsm->peer_addr_type;
