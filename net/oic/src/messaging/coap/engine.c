@@ -57,7 +57,6 @@ coap_receive(struct os_mbuf **mp)
     static struct coap_packet response[1];
     static coap_transaction_t *transaction = NULL;
     struct os_mbuf *rsp;
-    oc_endpoint_t endpoint; /* XXX */
 
     erbium_status_code = NO_ERROR;
 
@@ -147,8 +146,8 @@ coap_receive(struct os_mbuf **mp)
             new_offset = block_offset;
         }
 
-        if (oc_ri_invoke_coap_entity_handler(message, response, &new_offset,
-                                             OC_MBUF_ENDPOINT(m))) {
+        if (oc_ri_invoke_coap_entity_handler(message, response,
+                                             &new_offset, &msg->endpoint)) {
             if (erbium_status_code == NO_ERROR) {
                 /*
                  * TODO coap_handle_blockwise(request, response,

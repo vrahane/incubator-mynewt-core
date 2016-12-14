@@ -216,7 +216,7 @@ oc_interate_query(oc_request_t *request, char **key, int *key_len, char **value,
   return 1;
 }
 
-#if MYNEWT_VAL(OC_SEPARATE_RESPONSES)
+#if 0 /* XXXX fix this */
 void
 oc_indicate_separate_response(oc_request_t *request,
                               oc_separate_response_t *response)

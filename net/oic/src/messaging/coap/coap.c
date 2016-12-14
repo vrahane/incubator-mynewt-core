@@ -1340,18 +1340,6 @@ coap_get_payload_copy(struct coap_packet_rx *pkt, uint8_t *payload, int maxlen)
 }
 
 int
-coap_get_payload(struct coap_packet_rx *pkt, struct os_mbuf **mp, uint16_t *off)
-{
-    if (pkt->payload_len) {
-        *off = pkt->payload_off;
-    } else {
-        *off = OS_MBUF_PKTLEN(pkt->m);
-    }
-    *mp = pkt->m;
-    return pkt->payload_len;
-}
-
-int
 coap_set_payload(coap_packet_t *pkt, struct os_mbuf *m, size_t length)
 {
     pkt->payload_m = os_mbuf_dup(m);

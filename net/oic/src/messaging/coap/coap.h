@@ -387,10 +387,7 @@ int coap_set_header_size2(coap_packet_t *, uint32_t size);
 int coap_get_header_size1(struct coap_packet_rx *, uint32_t *size);
 int coap_set_header_size1(coap_packet_t *, uint32_t size);
 
-int coap_get_payload_copy(struct coap_packet_rx *, uint8_t *payload,
-                          int maxlen);
-int coap_get_payload(struct coap_packet_rx *pkt, struct os_mbuf **mp,
-                     uint16_t *off);
+int coap_get_payload(coap_packet_t *, const uint8_t **payload);
 int coap_set_payload(coap_packet_t *, struct os_mbuf *m, size_t length);
 
 #ifdef __cplusplus

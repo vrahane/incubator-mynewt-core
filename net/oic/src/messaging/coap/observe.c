@@ -219,7 +219,7 @@ coap_notify_observers(oc_resource_t *resource,
         response.response_buffer = &response_buffer;
         request.resource = resource;
         request.response = &response;
-        oc_rep_new(buffer, COAP_MAX_BLOCK_SIZE);
+        oc_rep_new(m);
         resource->get_handler(&request, resource->default_interface);
         response_buf = &response_buffer;
         if (response_buf->code == OC_IGNORE) {
@@ -300,6 +300,9 @@ coap_notify_observers(oc_resource_t *resource,
 #if MYNEWT_VAL(OC_SEPARATE_RESPONSES)
         }
 #endif
+    }
+    if (m) {
+        os_mbuf_free_chain(m);
     }
     if (m) {
         os_mbuf_free_chain(m);

@@ -347,9 +347,8 @@ does_interface_support_method(oc_resource_t *resource,
 }
 
 bool
-oc_ri_invoke_coap_entity_handler(struct coap_packet_rx *request,
-                                 coap_packet_t *response, int32_t *offset,
-                                 oc_endpoint_t *endpoint)
+oc_ri_invoke_coap_entity_handler(void *request, void *response,
+                                 int32_t *offset, oc_endpoint_t *endpoint)
 {
   /* Flags that capture status along various stages of processing
    *  the request.
@@ -632,9 +631,8 @@ oc_ri_invoke_coap_entity_handler(struct coap_packet_rx *request,
     }
 #endif
     if (response_buffer.response_length) {
-        response->payload_m = response_buffer.buffer;
-        response->payload_len = OS_MBUF_PKTLEN(response_buffer.buffer);
-        response_buffer.buffer = NULL; /* freed in coap_serialize_message() */
+        coap_set_payload(response, response_buffer.buffer,
+                         OS_MBUF_PKTLEN(response_buffer.buffer));
         coap_set_header_content_format(response, APPLICATION_CBOR);
     }
     /* response_buffer.code at this point contains a valid CoAP status
