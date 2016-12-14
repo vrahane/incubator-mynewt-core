@@ -28,6 +28,8 @@ pkg.keywords:
 pkg.deps:
     - kernel/os
     - net/nimble
+    - sys/log
+    - sys/stats
     - util/mem
 
 pkg.deps.BLE_SM_LEGACY:
