@@ -32,6 +32,9 @@
 
 #include "port/mynewt/adaptor.h"
 
+static struct os_mempool oc_buffers;
+static uint8_t oc_buffer_area[OS_MEMPOOL_BYTES(1, sizeof(oc_message_t))];
+
 static struct os_mqueue oc_inq;
 static struct os_mqueue oc_outq;
 
@@ -139,6 +142,8 @@ oc_buffer_rx(struct os_event *ev)
 void
 oc_buffer_init(void)
 {
+    os_mempool_init(&oc_buffers, 1, sizeof(oc_message_t), oc_buffer_area,
+                    "oc_bufs");
     os_mqueue_init(&oc_inq, oc_buffer_rx, NULL);
     os_mqueue_init(&oc_outq, oc_buffer_tx, NULL);
 }
