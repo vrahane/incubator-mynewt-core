@@ -48,7 +48,7 @@ oc_log_endpoint(uint16_t lvl, struct oc_endpoint *oe)
 #endif
 #if (MYNEWT_VAL(OC_TRANSPORT_GATT) == 1)
     case GATT:
-        snprintf(tmp, sizeof(tmp), "ble %u\n", oe->oe_ble.conn_handle);
+        snprintf(tmp, sizeof(tmp), "%u\n", oe->bt_addr.conn_handle);
         str = tmp;
         break;
 #endif

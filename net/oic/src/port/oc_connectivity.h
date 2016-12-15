@@ -30,32 +30,7 @@ typedef struct {
     uint8_t scope;
 } oc_ipv6_addr_t;
 
-enum oc_transport_flags {
-    IP = 1 << 0,
-    GATT = 1 << 1,
-    IPSP = 1 << 2,
-    MULTICAST = 1 << 3,
-    SECURED = 1 << 4,
-    SERIAL = 1 << 5,
-};
-
-/*
- * OC endpoint data structure comes in different variations,
- * depending on flags field.
- */
-/*
- * oc_endpoint for IPv6 source
- */
-struct oc_endpoint_ip {
-    enum oc_transport_flags flags;
-    oc_ipv6_addr_t v6;
-};
-
-/*
- * oc_endpoint for BLE source.
- */
-struct oc_endpoint_ble {
-    enum oc_transport_flags flags;
+typedef struct {
     uint16_t conn_handle;
 };
 
