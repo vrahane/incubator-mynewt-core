@@ -27,6 +27,7 @@
 #include <bsp/bsp.h>
 #include <hal/hal_gpio.h>
 #include <console/console.h>
+#include <imgmgr/imgmgr.h>
 #include <mgmt/mgmt.h>
 
 #include <oic/oc_api.h>
@@ -261,7 +262,7 @@ app_get_light(oc_request_t *request, oc_interface_mask_t interface)
         state = false;
     }
     oc_rep_start_root_object();
-    switch (interface) {
+        switch (interface) {
     case OC_IF_BASELINE:
         oc_process_baseline_interface(request->resource);
     case OC_IF_RW:
@@ -279,8 +280,7 @@ app_set_light(oc_request_t *request, oc_interface_mask_t interface)
 {
     bool state;
     int len;
-    uint16_t data_off;
-    struct os_mbuf *m;
+    const uint8_t *data;
     struct cbor_attr_t attrs[] = {
         [0] = {
             .attribute = "state",
@@ -292,13 +292,14 @@ app_set_light(oc_request_t *request, oc_interface_mask_t interface)
         }
     };
 
-    len = coap_get_payload(request->packet, &m, &data_off);
-    if (cbor_read_mbuf_attrs(m, data_off, len, attrs)) {
+    len = coap_get_payload(request->packet, &data);
+    if (cbor_read_flat_attrs(data, len, attrs)) {
         oc_send_response(request, OC_STATUS_BAD_REQUEST);
     } else {
         hal_gpio_write(LED_BLINK_PIN, state == true);
         oc_send_response(request, OC_STATUS_CHANGED);
     }
+
 }
 
 static void
@@ -369,6 +370,12 @@ main(void)
 
     /* Our light resource */
     hal_gpio_init_out(LED_BLINK_PIN, 1);
+<<<<<<< 5abb5cb6935dd563105c1899e06f8c61b879ce09
+=======
+
+    /* Start the OS */
+    os_start();
+>>>>>>> bleprph_oic; add an example resource, which controls BSP's LED pin.
 
     while (1) {
         os_eventq_run(os_eventq_dflt_get());
