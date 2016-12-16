@@ -30,19 +30,43 @@ typedef struct {
     uint8_t scope;
 } oc_ipv6_addr_t;
 
-typedef struct {
+enum oc_transport_flags {
+    IP = 1 << 0,
+    GATT = 1 << 1,
+    IPSP = 1 << 2,
+    MULTICAST = 1 << 3,
+    SECURED = 1 << 4,
+    SERIAL = 1 << 5,
+};
+
+/*
+ * OC endpoint data structure comes in different variations,
+ * depending on flags field.
+ */
+/*
+ * oc_endpoint for IPv6 source
+ */
+struct oc_endpoint_ip {
+    enum oc_transport_flags flags;
+    oc_ipv6_addr_t v6;
+};
+
+/*
+ * oc_endpoint for BLE source.
+ */
+struct oc_endpoint_ble {
+    enum oc_transport_flags flags;
     uint16_t conn_handle;
 };
 
+/*
+ * oc_endpoint for multicast target and serial port.
+ */
+struct oc_endpoint_plain {
+    enum oc_transport_flags flags;
+};
+
 typedef struct oc_endpoint {
-    enum transport_flags {
-        IP = 1 << 0,
-        GATT = 1 << 1,
-        IPSP = 1 << 2,
-        MULTICAST = 1 << 3,
-        SECURED = 1 << 4,
-        SERIAL = 1 << 5,
-    } flags;
     union {
         struct oc_endpoint_ip oe_ip;
         struct oc_endpoint_ble oe_ble;
@@ -59,6 +83,13 @@ typedef struct oc_endpoint {
     oc_endpoint_t __name__ = {.oe_ip = {.flags = __flags__,             \
                                         .v6 = {.port = __port__,        \
                                                .address = { __VA_ARGS__ } } } }
+
+typedef struct oc_message {
+    oc_endpoint_t endpoint;
+    size_t length;
+    uint8_t ref_count;
+    uint8_t data[MAX_PAYLOAD_SIZE];
+} oc_message_t;
 
 #ifdef OC_SECURITY
 uint16_t oc_connectivity_get_dtls_port(void);

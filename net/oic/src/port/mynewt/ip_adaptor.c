@@ -95,7 +95,6 @@ oc_send_buffer_ip_int(struct os_mbuf *m, int is_mcast)
     to.msin6_len = sizeof(to);
     to.msin6_family = MN_AF_INET6;
     to.msin6_port = htons(oe->oe_ip.v6.port);
-    to.msin6_flowinfo = 0;
     to.msin6_scope_id = oe->oe_ip.v6.scope;
     memcpy(&to.msin6_addr, oe->oe_ip.v6.address, sizeof(to.msin6_addr));
 
@@ -186,8 +185,6 @@ oc_attempt_rx_ip_sock(struct mn_socket *rxsock)
     }
     assert(OS_MBUF_IS_PKTHDR(n));
 
-    STATS_INC(oc_ip_stats, iframe);
-    STATS_INCN(oc_ip_stats, ibytes, OS_MBUF_PKTLEN(n));
     m = os_msys_get_pkthdr(0, sizeof(struct oc_endpoint_ip));
     if (!m) {
         OC_LOG_ERROR("Could not allocate RX buffer\n");
