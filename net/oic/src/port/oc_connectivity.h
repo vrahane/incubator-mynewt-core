@@ -34,14 +34,15 @@ typedef struct {
     uint16_t conn_handle;
 };
 
-/*
- * oc_endpoint for multicast target and serial port.
- */
-struct oc_endpoint_plain {
-    enum oc_transport_flags flags;
-};
-
 typedef struct oc_endpoint {
+    enum transport_flags {
+        IP = 1 << 0,
+        GATT = 1 << 1,
+        IPSP = 1 << 2,
+        MULTICAST = 1 << 3,
+        SECURED = 1 << 4,
+        SERIAL = 1 << 5,
+    } flags;
     union {
         struct oc_endpoint_ip oe_ip;
         struct oc_endpoint_ble oe_ble;
