@@ -359,8 +359,6 @@ lsm303dlhc_sensor_read(struct sensor *sensor, sensor_type_t type,
     int rc;
     int16_t x, y, z;
     float mg_lsb;
-    int16_t gauss_lsb_xy;
-    int16_t gauss_lsb_z;
     uint8_t payload[6];
 
     /* If the read isn't looking for accel or mag data, don't do anything. */
@@ -373,9 +371,20 @@ lsm303dlhc_sensor_read(struct sensor *sensor, sensor_type_t type,
     lsm = (struct lsm303dlhc *) SENSOR_GET_DEVICE(sensor);
 
     x = y = z = 0;
-    lsm303dlhc_read48(LSM303DLHC_ADDR_ACCEL,
-                      LSM303DLHC_REGISTER_ACCEL_OUT_X_L_A,
-                      &x, &y, &z);
+    rc = lsm303dlhc_read48(LSM303DLHC_ADDR_ACCEL,
+                          LSM303DLHC_REGISTER_ACCEL_OUT_X_L_A,
+                          payload);
+    if (rc != 0) {
+        goto err;
+    }
+
+    /* Shift raw values based on sensor type */
+    if (type & SENSOR_TYPE_ACCELEROMETER) {
+        /* Shift 12-bit left-aligned accel values into 16-bit int */
+        x = ((int16_t)(payload[0] | (payload[1] << 8))) >> 4;
+        y = ((int16_t)(payload[2] | (payload[3] << 8))) >> 4;
+        z = ((int16_t)(payload[4] | (payload[5] << 8))) >> 4;
+    }
 
     /* Determine mg per lsb based on range */
     switch(lsm->cfg.accel_range) {
