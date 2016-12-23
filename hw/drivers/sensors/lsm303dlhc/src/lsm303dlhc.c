@@ -372,64 +372,42 @@ lsm303dlhc_sensor_read(struct sensor *sensor, sensor_type_t type,
 
     lsm = (struct lsm303dlhc *) SENSOR_GET_DEVICE(sensor);
 
-    /* Get a new accelerometer sample */
-    if (type & SENSOR_TYPE_ACCELEROMETER) {
-        x = y = z = 0;
-        rc = lsm303dlhc_read48(LSM303DLHC_ADDR_ACCEL,
-                              LSM303DLHC_REGISTER_ACCEL_OUT_X_L_A | 0x80,
-                              payload);
-        if (rc != 0) {
-            goto err;
-        }
+    x = y = z = 0;
+    lsm303dlhc_read48(LSM303DLHC_ADDR_ACCEL,
+                      LSM303DLHC_REGISTER_ACCEL_OUT_X_L_A,
+                      &x, &y, &z);
 
-        /* Shift 12-bit left-aligned accel values into 16-bit int */
-        x = ((int16_t)(payload[0] | (payload[1] << 8))) >> 4;
-        y = ((int16_t)(payload[2] | (payload[3] << 8))) >> 4;
-        z = ((int16_t)(payload[4] | (payload[5] << 8))) >> 4;
-
-        /* Determine mg per lsb based on range */
-        switch(lsm->cfg.accel_range) {
-            case LSM303DLHC_ACCEL_RANGE_2:
+    /* Determine mg per lsb based on range */
+    switch(lsm->cfg.accel_range) {
+        case LSM303DLHC_ACCEL_RANGE_2:
 #if MYNEWT_VAL(LSM303DLHC_STATS)
-                STATS_INC(g_lsm303dlhcstats, samples_acc_2g);
+            STATS_INC(g_lsm303dlhcstats, samples_acc_2g);
 #endif
-                mg_lsb = 0.001F;
-                break;
-            case LSM303DLHC_ACCEL_RANGE_4:
+            mg_lsb = 0.001F;
+            break;
+        case LSM303DLHC_ACCEL_RANGE_4:
 #if MYNEWT_VAL(LSM303DLHC_STATS)
-                STATS_INC(g_lsm303dlhcstats, samples_acc_4g);
+            STATS_INC(g_lsm303dlhcstats, samples_acc_4g);
 #endif
-                mg_lsb = 0.002F;
-                break;
-            case LSM303DLHC_ACCEL_RANGE_8:
+            mg_lsb = 0.002F;
+            break;
+        case LSM303DLHC_ACCEL_RANGE_8:
 #if MYNEWT_VAL(LSM303DLHC_STATS)
-                STATS_INC(g_lsm303dlhcstats, samples_acc_8g);
+            STATS_INC(g_lsm303dlhcstats, samples_acc_8g);
 #endif
-                mg_lsb = 0.004F;
-                break;
-            case LSM303DLHC_ACCEL_RANGE_16:
+            mg_lsb = 0.004F;
+            break;
+        case LSM303DLHC_ACCEL_RANGE_16:
 #if MYNEWT_VAL(LSM303DLHC_STATS)
-                STATS_INC(g_lsm303dlhcstats, samples_acc_16g);
+            STATS_INC(g_lsm303dlhcstats, samples_acc_16g);
 #endif
-                mg_lsb = 0.012F;
-                break;
-            default:
-                LSM303DLHC_ERR("Unknown accel range: 0x%02X. Assuming +/-2G.\n",
-                    lsm->cfg.accel_range);
-                mg_lsb = 0.001F;
-                break;
-        }
-
-        /* Convert from mg to Earth gravity in m/s^2 */
-        sad.sad_x = (float)x * mg_lsb * 9.80665F;
-        sad.sad_y = (float)y * mg_lsb * 9.80665F;
-        sad.sad_z = (float)z * mg_lsb * 9.80665F;
-
-        /* Call data function */
-        rc = data_func(sensor, data_arg, &sad);
-        if (rc != 0) {
-            goto err;
-        }
+            mg_lsb = 0.012F;
+            break;
+        default:
+            LSM303DLHC_ERR("Unknown accel range: 0x%02X. Assuming +/-2G.\n",
+                lsm->cfg.accel_range);
+            mg_lsb = 0.001F;
+            break;
     }
 
     /* Get a new magnetometer sample */
