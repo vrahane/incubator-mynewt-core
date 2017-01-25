@@ -30,7 +30,7 @@
 #include <stats/stats.h>
 #include <config/config.h>
 #include <sensor/sensor.h>
-#include <sim/sim_accel.h>
+#include <lsm303dlhc/lsm303dlhc.h>
 #include "flash_map/flash_map.h"
 #include <hal/hal_system.h>
 #if MYNEWT_VAL(SPLIT_LOADER)
@@ -103,13 +103,10 @@ static char test_str[32];
 static uint32_t cbmem_buf[MAX_CBMEM_BUF];
 static struct cbmem cbmem;
 
-<<<<<<< 48bf270c92057d651932964255099b7b743c5a17
-=======
 static struct os_eventq slinky_evq;
 
 struct sim_accel sim_accel_sensor;
 
->>>>>>> add sensor API, interim commit.  Things are working in simulated mode to register and list sensors.
 static char *
 test_conf_get(int argc, char **argv, char *buf, int max_len)
 {
@@ -242,10 +239,47 @@ init_tasks(void)
             TASK2_PRIO, OS_WAIT_FOREVER, pstack, TASK2_STACK_SIZE);
 }
 
+#ifdef ARCH_arduino_zero
 static int
-slinky_sim_accel_init(struct os_dev *dev, void *arg)
+config_sensor(void)
 {
-    struct sim_accel_cfg cfg;
+    struct os_dev *dev;
+    struct lsm303dlhc_cfg cfg;
+    int rc;
+
+    dev = (struct os_dev *) os_dev_open("accel0", OS_TIMEOUT_NEVER, NULL);
+    assert(dev != NULL);
+
+    rc = lsm303dlhc_init(dev, NULL);
+    if (rc != 0) {
+        os_dev_close(dev);
+        goto err;
+    }
+
+    /* read once per sec.  API should take this value in ms. */
+    cfg.accel_rate = LSM303DLHC_ACCEL_RATE_1;
+    cfg.accel_range = LSM303DLHC_ACCEL_RANGE_2;
+
+    rc = lsm303dlhc_config((struct lsm303dlhc *) dev, &cfg);
+    if (rc != 0) {
+        os_dev_close(dev);
+        goto err;
+    }
+
+    os_dev_close(dev);
+
+    return (0);
+err:
+    return (rc);
+}
+#endif
+
+#ifdef ARCH_sim
+static int
+config_sensor(void)
+{
+    struct os_dev *dev;
+    struct cfg;
     int rc;
 
     rc = sim_accel_init(dev, arg);
@@ -267,7 +301,7 @@ slinky_sim_accel_init(struct os_dev *dev, void *arg)
 err:
     return (rc);
 }
-
+#endif
 
 /**
  * main
@@ -322,7 +356,7 @@ main(int argc, char **argv)
     }
 #endif
 
-    init_tasks();
+    config_sensor();
 
     sensor_pkg_init();
 
