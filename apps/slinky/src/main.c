@@ -268,6 +268,7 @@ config_sensor(void)
         os_dev_close(dev);
         goto err;
     }
+    os_dev_close(dev);
 #endif
 
 #if MYNEWT_VAL(LSM303DLHC_PRESENT)
@@ -291,6 +292,7 @@ config_sensor(void)
         os_dev_close(dev);
         goto err;
     }
+    os_dev_close(dev);
 #endif
 
 #if MYNEWT_VAL(BNO055_PRESENT)
@@ -312,14 +314,14 @@ config_sensor(void)
         //assert(0);
         goto err;
     }
-#endif
-
     os_dev_close(dev);
+#endif
 
     return (0);
 err:
     return rc;
 }
+
 #endif
 
 #ifdef ARCH_sim
