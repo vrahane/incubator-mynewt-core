@@ -295,7 +295,7 @@ sensor_shell_read_listener(struct sensor *sensor, void *arg, void *data)
     if (ctx->type == SENSOR_TYPE_TEMPERATURE) {
         std = (struct sensor_temp_data *) data;
         if (std->std_temp_is_valid) {
-            console_printf("temprature = %s", sensor_ftostr(std->std_temp, tmpstr, 13));
+            console_printf("temperature = %s", sensor_ftostr(std->std_temp, tmpstr, 13));
         }
         console_printf("\n");
     }
