@@ -43,10 +43,11 @@ pkg.deps:
     - sys/stats/full
     - boot/split
     - mgmt/imgmgr
-    #- mgmt/newtmgr
+    - mgmt/newtmgr
+    - mgmt/newtmgr/transport/ble
 
 pkg.deps.SENSOR_OIC:
-    - mgmt/oicmgr
+  #- mgmt/oicmgr
 
 pkg.deps.SENSOR_BLE:
     - net/nimble/controller
