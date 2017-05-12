@@ -35,6 +35,6 @@ syscfg.defs:
 
     SENSOR_OIC_OBS_RATE:
         description: 'Sensor OIC observe rate in seconds'
-        value: 10
+        value: 1
         restrictions:
             - OC_SERVER
