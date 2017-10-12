@@ -473,6 +473,9 @@ ble_oic_log_init(void)
 int
 main(int argc, char **argv)
 {
+    int i = 0;
+
+    i++;
 
 #ifdef ARCH_sim
     mcu_sim_parse_args(argc, argv);
