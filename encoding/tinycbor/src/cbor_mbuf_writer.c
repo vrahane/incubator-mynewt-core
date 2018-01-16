@@ -23,25 +23,14 @@
 #include <tinycbor/cbor_mbuf_writer.h>
 
 int
-cbor_mbuf_writer(struct cbor_encoder_writer *arg, const char *data, int len)
+cbor_mbuf_writer(void *arg, const void *data, size_t len)
 {
     int rc;
-    struct cbor_mbuf_writer *cb = (struct cbor_mbuf_writer *) arg;
+    struct os_mbuf *m = arg;
 
-    rc = os_mbuf_append(cb->m, data, len);
+    rc = os_mbuf_append(m, (const char *)data, len);
     if (rc) {
         return CborErrorOutOfMemory;
     }
-    cb->enc.bytes_written += len;
     return CborNoError;
 }
-
-
-void
-cbor_mbuf_writer_init(struct cbor_mbuf_writer *cb, struct os_mbuf *m)
-{
-    cb->m = m;
-    cb->enc.bytes_written = 0;
-    cb->enc.write = &cbor_mbuf_writer;
-}
-

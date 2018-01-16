@@ -22,21 +22,22 @@
 **
 ****************************************************************************/
 
+#ifndef _BSD_SOURCE
 #define _BSD_SOURCE 1
+#endif
+#ifndef _DEFAULT_SOURCE
 #define _DEFAULT_SOURCE 1
+#endif
 #ifndef __STDC_LIMIT_MACROS
 #  define __STDC_LIMIT_MACROS 1
 #endif
 
-#include "tinycbor/cbor.h"
-#include "tinycbor/cborconstants_p.h"
-#include "tinycbor/compilersupport_p.h"
+#include "cbor.h"
+#include "cborinternal_p.h"
+#include "compilersupport_p.h"
 
-#include <assert.h>
 #include <stdlib.h>
 #include <string.h>
-
-#include "tinycbor/assert_p.h"       /* Always include last */
 
 /**
  * \defgroup CborEncoding Encoding to CBOR
@@ -136,7 +137,7 @@
  * Finally, the example below illustrates expands on the one above and also
  * deals with dynamically growing the buffer if the initial allocation wasn't
  * big enough. Note the two places where the error checking was replaced with
- * an assertion, showing where the author assumes no error can occur.
+ * an cbor_assertion, showing where the author assumes no error can occur.
  *
  * \code
  * uint8_t *encode_string_array(const char **strings, int n, size_t *bufsize)
@@ -156,7 +157,7 @@
  *
  *         cbor_encoder_init(&encoder, &buf, size, 0);
  *         err = cbor_encoder_create_array(&encoder, &arrayEncoder, n);
- *         assert(err);         // can't fail, the buffer is always big enough
+ *         cbor_assert(err);         // can't fail, the buffer is always big enough
  *
  *         for (i = 0; i < n; ++i) {
  *             err = cbor_encode_text_stringz(&arrayEncoder, strings[i]);
@@ -165,7 +166,7 @@
  *         }
  *
  *         err = cbor_encoder_close_container_checked(&encoder, &arrayEncoder);
- *         assert(err);         // shouldn't fail!
+ *         cbor_assert(err);         // shouldn't fail!
  *
  *         more_bytes = cbor_encoder_get_extra_bytes_needed(encoder);
  *         if (more_size) {
@@ -199,20 +200,31 @@
  * buffer of size \a size. The \a flags field is currently unused and must be
  * zero.
  */
-void cbor_encoder_init(CborEncoder *encoder, cbor_encoder_writer *writer, int flags)
+void cbor_encoder_init(CborEncoder *encoder, uint8_t *buffer, size_t size, int flags)
 {
-    encoder->writer = writer;
-    encoder->added = 0;
+    encoder->data.ptr = buffer;
+    encoder->end = buffer + size;
+    encoder->remaining = 2;
     encoder->flags = flags;
 }
 
-#if FLOAT_SUPPORT
+void cbor_encoder_init_writer(CborEncoder *encoder, CborError (*writer)(void *, const void *, size_t), void *token)
+{
+#ifdef CBOR_ENCODER_WRITE_FUNCTION
+    (void) writer;
+#else
+    encoder->data.writer = writer;
+#endif
+    encoder->end = (uint8_t *)token;
+    encoder->remaining = 2;
+    encoder->flags = CborIteratorFlag_WriterFunction;
+}
+
 static inline void put16(void *where, uint16_t v)
 {
     v = cbor_htons(v);
     memcpy(where, &v, sizeof(v));
 }
-#endif
 
 /* Note: Since this is currently only used in situations where OOM is the only
  * valid error, we KNOW this to be true.  Thus, this function now returns just 'true',
@@ -221,17 +233,19 @@ static inline void put16(void *where, uint16_t v)
  * being created in the tinycbor output */
 static inline bool isOomError(CborError err)
 {
-    (void) err;
-    return true;
+    if (CBOR_ENCODER_WRITER_CONTROL < 0)
+        return true;
+
+    /* CborErrorOutOfMemory is the only negative error code, intentionally
+     * so we can write the test like this */
+    return (int)err < 0;
 }
 
-#if FLOAT_SUPPORT
 static inline void put32(void *where, uint32_t v)
 {
     v = cbor_htonl(v);
     memcpy(where, &v, sizeof(v));
 }
-#endif
 
 static inline void put64(void *where, uint64_t v)
 {
@@ -239,9 +253,50 @@ static inline void put64(void *where, uint64_t v)
     memcpy(where, &v, sizeof(v));
 }
 
+static inline bool would_overflow(CborEncoder *encoder, size_t len)
+{
+    ptrdiff_t remaining = (ptrdiff_t)encoder->end;
+    remaining -= remaining ? (ptrdiff_t)encoder->data.ptr : encoder->data.bytes_needed;
+    remaining -= (ptrdiff_t)len;
+    return unlikely(remaining < 0);
+}
+
+static inline void advance_ptr(CborEncoder *encoder, size_t n)
+{
+    if (encoder->end)
+        encoder->data.ptr += n;
+    else
+        encoder->data.bytes_needed += n;
+}
+
 static inline CborError append_to_buffer(CborEncoder *encoder, const void *data, size_t len)
 {
-    return encoder->writer->write(encoder->writer, data, len);
+    if (CBOR_ENCODER_WRITER_CONTROL >= 0) {
+        if (encoder->flags & CborIteratorFlag_WriterFunction || CBOR_ENCODER_WRITER_CONTROL != 0) {
+#  ifdef CBOR_ENCODER_WRITE_FUNCTION
+            return CBOR_ENCODER_WRITE_FUNCTION(encoder->end, data, len);
+#  else
+            return encoder->data.writer(encoder->end, data, len);
+#  endif
+        }
+    }
+
+#if CBOR_ENCODER_WRITER_CONTROL <= 0
+    if (would_overflow(encoder, len)) {
+        if (encoder->end != NULL) {
+            len -= encoder->end - encoder->data.ptr;
+            encoder->end = NULL;
+            encoder->data.bytes_needed = 0;
+        }
+
+        advance_ptr(encoder, len);
+        return CborErrorOutOfMemory;
+    }
+
+    memcpy(encoder->data.ptr, data, len);
+    encoder->data.ptr += len;
+#endif
+    return CborNoError;
 }
 
 static inline CborError append_byte_to_buffer(CborEncoder *encoder, uint8_t byte)
@@ -264,7 +319,7 @@ static inline CborError encode_number_no_update(CborEncoder *encoder, uint64_t u
     if (ui < Value8Bit) {
         *bufstart += shiftedMajorType;
     } else {
-        unsigned more = 0;
+        uint8_t more = 0;
         if (ui > 0xffU)
             ++more;
         if (ui > 0xffffU)
@@ -278,9 +333,15 @@ static inline CborError encode_number_no_update(CborEncoder *encoder, uint64_t u
     return append_to_buffer(encoder, bufstart, bufend - bufstart);
 }
 
+static inline void saturated_decrement(CborEncoder *encoder)
+{
+    if (encoder->remaining)
+        --encoder->remaining;
+}
+
 static inline CborError encode_number(CborEncoder *encoder, uint64_t ui, uint8_t shiftedMajorType)
 {
-    ++encoder->added;
+    saturated_decrement(encoder);
     return encode_number_no_update(encoder, ui, shiftedMajorType);
 }
 
@@ -338,7 +399,6 @@ CborError cbor_encode_simple_value(CborEncoder *encoder, uint8_t value)
     return encode_number(encoder, value, SimpleTypesType << MajorTypeShift);
 }
 
-#if FLOAT_SUPPORT
 /**
  * Appends the floating-point value of type \a fpType and pointed to by \a
  * value to the CBOR stream provided by \a encoder. The value of \a fpType must
@@ -353,7 +413,7 @@ CborError cbor_encode_simple_value(CborEncoder *encoder, uint8_t value)
 CborError cbor_encode_floating_point(CborEncoder *encoder, CborType fpType, const void *value)
 {
     uint8_t buf[1 + sizeof(uint64_t)];
-    assert(fpType == CborHalfFloatType || fpType == CborFloatType || fpType == CborDoubleType);
+    cbor_assert(fpType == CborHalfFloatType || fpType == CborFloatType || fpType == CborDoubleType);
     buf[0] = fpType;
 
     unsigned size = 2U << (fpType - CborHalfFloatType);
@@ -363,10 +423,9 @@ CborError cbor_encode_floating_point(CborEncoder *encoder, CborType fpType, cons
         put32(buf + 1, *(const uint32_t*)value);
     else
         put16(buf + 1, *(const uint16_t*)value);
-    ++encoder->added;
+    saturated_decrement(encoder);
     return append_to_buffer(encoder, buf, size + 1);
 }
-#endif
 
 /**
  * Appends the CBOR tag \a tag to the CBOR stream provided by \a encoder.
@@ -427,24 +486,26 @@ __attribute__((noinline))
 static CborError create_container(CborEncoder *encoder, CborEncoder *container, size_t length, uint8_t shiftedMajorType)
 {
     CborError err;
-    container->writer = encoder->writer;
-    ++encoder->added;
-    container->added = 0;
+    container->data.ptr = encoder->data.ptr;
+    container->end = encoder->end;
+    saturated_decrement(encoder);
+    container->remaining = length + 1;      /* overflow ok on CborIndefiniteLength */
 
     cbor_static_assert(((MapType << MajorTypeShift) & CborIteratorFlag_ContainerIsMap) == CborIteratorFlag_ContainerIsMap);
     cbor_static_assert(((ArrayType << MajorTypeShift) & CborIteratorFlag_ContainerIsMap) == 0);
     container->flags = shiftedMajorType & CborIteratorFlag_ContainerIsMap;
+    if (CBOR_ENCODER_WRITER_CONTROL == 0)
+        container->flags |= encoder->flags & CborIteratorFlag_WriterFunction;
 
     if (length == CborIndefiniteLength) {
         container->flags |= CborIteratorFlag_UnknownLength;
         err = append_byte_to_buffer(container, shiftedMajorType + IndefiniteLength);
     } else {
+        if (shiftedMajorType & CborIteratorFlag_ContainerIsMap)
+            container->remaining += length;
         err = encode_number_no_update(container, length, shiftedMajorType);
     }
-    if (err && !isOomError(err))
-        return err;
-
-    return CborNoError;
+    return err;
 }
 
 /**
@@ -497,18 +558,27 @@ CborError cbor_encoder_create_map(CborEncoder *encoder, CborEncoder *mapEncoder,
  * same as were passed to cbor_encoder_create_array() or
  * cbor_encoder_create_map().
  *
- * This function does not verify that the number of items (or pair of items, in
- * the case of a map) was correct. To execute that verification, call
+ * Since version 0.5, this function verifies that the number of items (or pair
+ * of items, in the case of a map) was correct. It is no longer needed to call
  * cbor_encoder_close_container_checked() instead.
  *
  * \sa cbor_encoder_create_array(), cbor_encoder_create_map()
  */
 CborError cbor_encoder_close_container(CborEncoder *encoder, const CborEncoder *containerEncoder)
 {
-    encoder->writer = containerEncoder->writer;
-
+    if (encoder->end && !(encoder->flags & CborIteratorFlag_WriterFunction))
+        encoder->data.ptr = containerEncoder->data.ptr;
+    else
+        encoder->data.bytes_needed = containerEncoder->data.bytes_needed;
+    encoder->end = containerEncoder->end;
     if (containerEncoder->flags & CborIteratorFlag_UnknownLength)
         return append_byte_to_buffer(encoder, BreakByte);
+
+    if (containerEncoder->remaining != 1)
+        return containerEncoder->remaining == 0 ? CborErrorTooManyItems : CborErrorTooFewItems;
+
+    if (!encoder->end)
+        return CborErrorOutOfMemory;    /* keep the state */
     return CborNoError;
 }
 

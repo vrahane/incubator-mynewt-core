@@ -27,12 +27,8 @@
 extern "C" {
 #endif
 
-struct cbor_mbuf_writer {
-    struct cbor_encoder_writer enc;
-    struct os_mbuf *m;
-};
-
-void cbor_mbuf_writer_init(struct cbor_mbuf_writer *cb, struct os_mbuf *m);
+int
+cbor_mbuf_writer(void *arg, const void *data, size_t len);
 
 #ifdef __cplusplus
 }

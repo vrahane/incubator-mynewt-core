@@ -44,7 +44,6 @@ struct os_eventq *nmgr_evq;
  */
 static struct nmgr_cbuf {
     struct mgmt_cbuf n_b;
-    struct cbor_mbuf_writer writer;
     struct cbor_mbuf_reader reader;
     struct os_mbuf *n_out_m;
 } nmgr_task_cbuf;
@@ -87,8 +86,7 @@ nmgr_init_rsp(struct os_mbuf *m, struct nmgr_hdr *src)
     hdr->nh_id = src->nh_id;
 
     /* setup state for cbor encoding */
-    cbor_mbuf_writer_init(&nmgr_task_cbuf.writer, m);
-    cbor_encoder_init(&nmgr_task_cbuf.n_b.encoder, &nmgr_task_cbuf.writer.enc, 0);
+    cbor_encoder_init_writer(&nmgr_task_cbuf.n_b.encoder, &cbor_mbuf_writer, m);
     nmgr_task_cbuf.n_out_m = m;
     return hdr;
 }
@@ -123,7 +121,7 @@ nmgr_send_err_rsp(struct nmgr_transport *nt, struct os_mbuf *m,
     }
 
     hdr->nh_len =
-        htons(cbor_encode_bytes_written(&nmgr_task_cbuf.n_b.encoder));
+        htons(OS_MBUF_PKTLEN(nmgr_task_cbuf.n_out_m) - NMGR_HDR_SIZE);
 
     nt->nt_output(nt, nmgr_task_cbuf.n_out_m);
 }
@@ -245,9 +243,10 @@ nmgr_handle_req(struct nmgr_transport *nt, struct os_mbuf *req)
             goto err_norsp;
         }
 
-        cbor_mbuf_reader_init(&nmgr_task_cbuf.reader, req, sizeof(hdr));
-        cbor_parser_init(&nmgr_task_cbuf.reader.r, 0,
-                         &nmgr_task_cbuf.n_b.parser, &nmgr_task_cbuf.n_b.it);
+        cbor_parser_init_reader(&cbor_mbuf_parser_ops,
+                                &nmgr_task_cbuf.n_b.parser,
+                                &nmgr_task_cbuf.n_b.it,
+                                &nmgr_task_cbuf.reader);
 
         /* Begin response payload.  Response fields are inserted into the root
          * map as key value pairs.
@@ -286,8 +285,7 @@ nmgr_handle_req(struct nmgr_transport *nt, struct os_mbuf *req)
             goto err;
         }
 
-        rsp_hdr->nh_len +=
-            cbor_encode_bytes_written(&nmgr_task_cbuf.n_b.encoder);
+        rsp_hdr->nh_len += OS_MBUF_PKTLEN(nmgr_task_cbuf.n_out_m) - NMGR_HDR_SIZE;
         rsp_hdr->nh_len = htons(rsp_hdr->nh_len);
 
         rc = nmgr_rsp_tx(nt, &rsp, mtu);

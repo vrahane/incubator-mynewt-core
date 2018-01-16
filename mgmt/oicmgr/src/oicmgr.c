@@ -153,9 +153,8 @@ omgr_oic_put(oc_request_t *req, oc_interface_mask_t mask)
 
     coap_get_payload(req->packet, &m, &data_off);
 
-    cbor_mbuf_reader_init(&o->os_cbuf.ob_reader, m, data_off);
-    cbor_parser_init(&o->os_cbuf.ob_reader.r, 0, &o->os_cbuf.ob_mj.parser,
-                     &o->os_cbuf.ob_mj.it);
+    cbor_parser_init_reader(&cbor_mbuf_parser_ops, &o->os_cbuf.ob_mj.parser,
+                            &o->os_cbuf.ob_mj.it, &o->os_cbuf.ob_reader);
 
     rc = omgr_oic_read_hdr(&o->os_cbuf.ob_mj.it, &hdr);
     if (rc != 0) {
@@ -188,9 +187,9 @@ omgr_oic_put(oc_request_t *req, oc_interface_mask_t mask)
         goto done;
     }
 
-    cbor_mbuf_reader_init(&o->os_cbuf.ob_reader, m, data_off);
-    cbor_parser_init(&o->os_cbuf.ob_reader.r, 0, &o->os_cbuf.ob_mj.parser,
-                     &o->os_cbuf.ob_mj.it);
+    o->os_cbuf.ob_reader = { .m = m, .init_off = data_off};
+    cbor_parser_init_reader(&cbor_mbuf_parser_ops, &o->os_cbuf.ob_mj.parser,
+                            &o->os_cbuf.ob_mj.it, &o->os_cbuf.ob_reader);
 
     switch (mask) {
     case OC_IF_BASELINE:

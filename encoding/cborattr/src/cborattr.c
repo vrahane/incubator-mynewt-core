@@ -20,7 +20,6 @@
 #include <syscfg/syscfg.h>
 #include <cborattr/cborattr.h>
 #include <tinycbor/cbor.h>
-#include <tinycbor/cbor_buf_reader.h>
 #include <tinycbor/cbor_mbuf_reader.h>
 
 /* this maps a CborType to a matching CborAtter Type. The mapping is not
@@ -378,13 +377,11 @@ int
 cbor_read_flat_attrs(const uint8_t *data, int len,
                      const struct cbor_attr_t *attrs)
 {
-    struct cbor_buf_reader reader;
     struct CborParser parser;
     struct CborValue value;
     CborError err;
 
-    cbor_buf_reader_init(&reader, data, len);
-    err = cbor_parser_init(&reader.r, 0, &parser, &value);
+    err = cbor_parser_init(data, len, 0, &parser, &value);
     if (err != CborNoError) {
         return -1;
     }
@@ -406,15 +403,15 @@ int
 cbor_read_mbuf_attrs(struct os_mbuf *m, uint16_t off, uint16_t len,
                      const struct cbor_attr_t *attrs)
 {
-    struct cbor_mbuf_reader cmr;
     struct CborParser parser;
     struct CborValue value;
     CborError err;
+    struct cbor_mbuf_reader cmr = { .m = m, .init_off = off};
 
-    cbor_mbuf_reader_init(&cmr, m, off);
-    err = cbor_parser_init(&cmr.r, 0, &parser, &value);
+    err = cbor_parser_init_reader(&cbor_mbuf_parser_ops, &parser, &value, &cmr);
     if (err != CborNoError) {
         return -1;
     }
+
     return cbor_read_object(&value, attrs);
 }

@@ -26,4 +26,6 @@ pkg.keywords:
 pkg.cflags:
     - -DWITHOUT_OPEN_MEMSTREAM
     - "-I@apache-mynewt-core/encoding/tinycbor/include/tinycbor"
+    - -DCBOR_ENCODER_WRITER_CONTROL
+    - -DCBOR_PARSER_READER_CONTROL
 pkg.cflags.FLOAT_USER: -DFLOAT_SUPPORT

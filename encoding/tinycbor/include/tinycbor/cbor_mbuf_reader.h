@@ -27,14 +27,12 @@
 extern "C" {
 #endif
 
+extern struct CborParserOperations cbor_mbuf_parser_ops;
+
 struct cbor_mbuf_reader {
-    struct cbor_decoder_reader r;
     int init_off;                     /* initial offset into the data */
     struct os_mbuf *m;
 };
-
-void cbor_mbuf_reader_init(struct cbor_mbuf_reader *cb, struct os_mbuf *m,
-                           int intial_offset);
 
 #ifdef __cplusplus
 }

@@ -39,15 +39,13 @@ static uint8_t oc_rep_objects_area[OS_MEMPOOL_BYTES(EST_NUM_REP_OBJECTS,
 static struct os_mbuf *g_outm;
 CborEncoder g_encoder, root_map, links_array;
 CborError g_err;
-struct cbor_mbuf_writer g_buf_writer;
 
 void
 oc_rep_new(struct os_mbuf *m)
 {
     g_err = CborNoError;
     g_outm = m;
-    cbor_mbuf_writer_init(&g_buf_writer, m);
-    cbor_encoder_init(&g_encoder, &g_buf_writer.enc, 0);
+    cbor_encoder_init_writer(&g_encoder, &cbor_mbuf_writer, m);
 }
 
 int
@@ -296,8 +294,8 @@ oc_parse_rep(struct os_mbuf *m, uint16_t payload_off,
   CborError err = CborNoError;
   struct cbor_mbuf_reader br;
 
-  cbor_mbuf_reader_init(&br, m, payload_off);
-  err |= cbor_parser_init(&br.r, 0, &parser, &root_value);
+  br = { .m = m, .init_off = payload_off};
+  err |= cbor_parser_init_reader(&cbor_mbuf_parser_ops, &parser, &root_value, &br);
   if (cbor_value_is_map(&root_value)) {
     err |= cbor_value_enter_container(&root_value, &cur_value);
     *out_rep = 0;

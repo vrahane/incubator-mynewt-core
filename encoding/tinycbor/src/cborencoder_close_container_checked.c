@@ -28,19 +28,30 @@
 #  define __STDC_LIMIT_MACROS 1
 #endif
 
-#include "tinycbor/cbor.h"
-#include "tinycbor/cborconstants_p.h"
-#include "tinycbor/compilersupport_p.h"
-#include "tinycbor/extract_number_p.h"
-
-#include <assert.h>
-
-#include "tinycbor/assert_p.h"       /* Always include last */
+#include "cbor.h"
 
 /**
  * \addtogroup CborEncoding
  * @{
  */
 
+/**
+ * @deprecated
+ *
+ * Closes the CBOR container (array or map) provided by \a containerEncoder and
+ * updates the CBOR stream provided by \a encoder. Both parameters must be the
+ * same as were passed to cbor_encoder_create_array() or
+ * cbor_encoder_create_map().
+ *
+ * Prior to version 0.5, cbor_encoder_close_container() did not check the
+ * number of items added. Since that version, it does and now
+ * cbor_encoder_close_container_checked() is no longer needed.
+ *
+ * \sa cbor_encoder_create_array(), cbor_encoder_create_map()
+ */
+CborError cbor_encoder_close_container_checked(CborEncoder *encoder, const CborEncoder *containerEncoder)
+{
+    return cbor_encoder_close_container(encoder, containerEncoder);
+}
 
 /** @} */

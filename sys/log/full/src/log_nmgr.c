@@ -70,8 +70,8 @@ log_nmgr_encode_entry(struct log *log, struct log_offset *log_offset,
     CborError g_err = CborNoError;
     CborEncoder *penc = (CborEncoder*)log_offset->lo_arg;
     CborEncoder rsp;
-    struct CborCntWriter cnt_writer;
     CborEncoder cnt_encoder;
+    size_t bytes_written;
 
     rc = log_read(log, dptr, &ueh, 0, sizeof(ueh));
     if (rc != sizeof(ueh)) {
@@ -109,10 +109,8 @@ log_nmgr_encode_entry(struct log *log, struct log_offset *log_offset,
     }
     data[rc] = 0;
 
-    /*calculate whether this would fit */
     /* create a counting encoder for cbor */
-    cbor_cnt_writer_init(&cnt_writer);
-    cbor_encoder_init(&cnt_encoder, &cnt_writer.enc, 0);
+    cbor_encoder_init_writer(&cnt_encoder, &cbor_cnt_writer, &bytes_written);
 
     /* NOTE This code should exactly match what is below */
     g_err |= cbor_encoder_create_map(&cnt_encoder, &rsp, CborIndefiniteLength);
@@ -128,7 +126,7 @@ log_nmgr_encode_entry(struct log *log, struct log_offset *log_offset,
     g_err |= cbor_encode_uint(&rsp,  ueh.ue_module);
     g_err |= cbor_encoder_close_container(&cnt_encoder, &rsp);
     rsp_len = log_offset->lo_data_len;
-    rsp_len += cbor_encode_bytes_written(&cnt_encoder);
+    rsp_len += *(size_t *)&cnt_encoder.end;
     if (rsp_len > 400) {
         rc = OS_ENOMEM;
         goto err;
@@ -170,15 +168,13 @@ log_encode_entries(struct log *log, CborEncoder *cb,
     int rsp_len = 0;
     CborEncoder entries;
     CborError g_err = CborNoError;
-    struct CborCntWriter cnt_writer;
     CborEncoder cnt_encoder;
+    size_t bytes_written;
 
     memset(&log_offset, 0, sizeof(log_offset));
 
-    /* this code counts how long the message would be if we encoded
-     * this outer structure using cbor. */
-    cbor_cnt_writer_init(&cnt_writer);
-    cbor_encoder_init(&cnt_encoder, &cnt_writer.enc, 0);
+    /* this code counts how long the message would be if we encoded */
+    cbor_encoder_init_writer(&cnt_encoder, &cbor_cnt_writer, &bytes_written);
     g_err |= cbor_encode_text_stringz(&cnt_encoder, "entries");
     g_err |= cbor_encoder_create_array(&cnt_encoder, &entries,
                                        CborIndefiniteLength);
@@ -251,6 +247,7 @@ log_nmgr_read(struct mgmt_cbuf *cb)
     uint64_t index;
     CborError g_err = CborNoError;
     CborEncoder logs;
+    CborEncoder cbor_cnt_encoder;
 
     const struct cbor_attr_t attr[4] = {
         [0] = {
@@ -278,6 +275,9 @@ log_nmgr_read(struct mgmt_cbuf *cb)
     if (rc) {
         return rc;
     }
+
+    g_err |= cbor_encoder_init_writer(&cbor_cnt_encoder, &cbor_cnt_writer,
+                                      &bytes_written);
 
     g_err |= cbor_encode_text_stringz(&cb->encoder, "next_index");
     g_err |= cbor_encode_int(&cb->encoder, g_log_info.li_next_index);

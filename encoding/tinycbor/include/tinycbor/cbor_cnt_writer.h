@@ -33,21 +33,12 @@ extern "C" {
      * in a buffer.  Its much easier to understand this way (for me)
      */
 
-struct CborCntWriter {
-    struct cbor_encoder_writer enc;
-};
+static inline CborError
+cbor_cnt_writer(void *arg, const void *data, size_t len) {
 
-static inline int
-cbor_cnt_writer(struct cbor_encoder_writer *arg, const char *data, int len) {
-    struct CborCntWriter *cb = (struct CborCntWriter *) arg;
-    cb->enc.bytes_written += len;
+    *(size_t *)arg += len;
+
     return CborNoError;
-}
-
-static inline void
-cbor_cnt_writer_init(struct CborCntWriter *cb) {
-    cb->enc.bytes_written = 0;
-    cb->enc.write = &cbor_cnt_writer;
 }
 
 #ifdef __cplusplus

@@ -21,80 +21,97 @@
 #include <tinycbor/compilersupport_p.h>
 #include <os/os_mbuf.h>
 
-static uint8_t
-cbor_mbuf_reader_get8(struct cbor_decoder_reader *d, int offset)
-{
-    uint8_t val;
-    struct cbor_mbuf_reader *cb = (struct cbor_mbuf_reader *) d;
+static bool
+cbor_mbuf_can_read_bytes(void *token, size_t len);
+static void *
+cbor_mbuf_read_bytes(void *token, void *dst, size_t offset, size_t len);
+static void
+cbor_mbuf_advance_bytes(void *token, size_t len);
+static CborError
+cbor_mbuf_transfer_string(void *token, const void **userptr, size_t offset,
+                          size_t len);
 
-    os_mbuf_copydata(cb->m, offset + cb->init_off, sizeof(val), &val);
-    return val;
+struct CborParserOperations cbor_mbuf_parser_ops = {
+    .can_read_bytes = cbor_mbuf_can_read_bytes,
+    .read_bytes = cbor_mbuf_read_bytes,
+    .advance_bytes = cbor_mbuf_advance_bytes,
+    .transfer_string = cbor_mbuf_transfer_string
+};
+
+static bool
+cbor_mbuf_can_read_bytes(void *token, size_t len)
+{
+    struct cbor_mbuf_reader *cb = (struct cbor_mbuf_reader *)token;
+
+    return (OS_MBUF_PKTLEN(cb->m) - cb->init_off) >= (int)len;
 }
 
-static uint16_t
-cbor_mbuf_reader_get16(struct cbor_decoder_reader *d, int offset)
+static void *
+cbor_mbuf_read_bytes(void *token, void *dst, size_t offset, size_t len)
 {
-    uint16_t val;
-    struct cbor_mbuf_reader *cb = (struct cbor_mbuf_reader *) d;
-
-    os_mbuf_copydata(cb->m, offset + cb->init_off, sizeof(val), &val);
-    return cbor_ntohs(val);
-}
-
-static uint32_t
-cbor_mbuf_reader_get32(struct cbor_decoder_reader *d, int offset)
-{
-    uint32_t val;
-    struct cbor_mbuf_reader *cb = (struct cbor_mbuf_reader *) d;
-
-    os_mbuf_copydata(cb->m, offset + cb->init_off, sizeof(val), &val);
-    return cbor_ntohl(val);
-}
-
-static uint64_t
-cbor_mbuf_reader_get64(struct cbor_decoder_reader *d, int offset)
-{
-    uint64_t val;
-    struct cbor_mbuf_reader *cb = (struct cbor_mbuf_reader *) d;
-
-    os_mbuf_copydata(cb->m, offset + cb->init_off, sizeof(val), &val);
-    return cbor_ntohll(val);
-}
-
-static uintptr_t
-cbor_mbuf_reader_cmp(struct cbor_decoder_reader *d, char *buf, int offset,
-                     size_t len)
-{
-    struct cbor_mbuf_reader *cb = (struct cbor_mbuf_reader *) d;
-    return os_mbuf_cmpf(cb->m, offset + cb->init_off, buf, len);
-}
-
-static uintptr_t
-cbor_mbuf_reader_cpy(struct cbor_decoder_reader *d, char *dst, int offset,
-                     size_t len)
-{
-    int rc;
-    struct cbor_mbuf_reader *cb = (struct cbor_mbuf_reader *) d;
-
-    rc = os_mbuf_copydata(cb->m, offset + cb->init_off, len, dst);
-    if (rc == 0) {
-        return true;
+    struct cbor_mbuf_reader *cb = (struct cbor_mbuf_reader *)token;
+    os_mbuf_copydata(cb->m, offset + cb->init_off, len, dst);
+    if (len == sizeof(uint8_t)) {
+        goto done;
+    } else if (len == sizeof(uint16_t)) {
+        *(uint16_t *)dst = cbor_ntohs(*(uint16_t *)dst);
+        goto done;
+    } else if (len == sizeof(uint32_t)) {
+        *(uint32_t *)dst = cbor_ntohl(*(uint32_t *)dst);
+        goto done;
+    } else if (len == sizeof(uint64_t)) {
+        *(uint64_t *)dst = cbor_ntohll(*(uint64_t *)dst);
+        goto done;
     }
-    return false;
+
+done:
+    return dst;
 }
 
+static void
+cbor_mbuf_advance_bytes(void *token, size_t len)
+{
+    struct cbor_mbuf_reader *cb = (struct cbor_mbuf_reader *)token;
+
+    cb->init_off += len;
+}
+
+static CborError
+cbor_mbuf_transfer_string(void *token, const void **userptr, size_t offset,
+                          size_t len)
+{
+    struct cbor_mbuf_reader *cb = (struct cbor_mbuf_reader *)token;
+    char ch;
+    int rc;
+    size_t prev_ioff;
+
+    if (OS_MBUF_PKTLEN(cb->m) - cb->init_off < (int)(len + offset)) {
+        return CborErrorUnexpectedEOF;
+    }
+
+    cb->init_off += (int)offset;
+
+    rc = os_mbuf_copydata(cb->m, cb->init_off, 1, &ch);
+    prev_ioff = cb->init_off;
+    while(!rc && ch != '\0') {
+        rc = os_mbuf_copydata(cb->m, prev_ioff, 1, &ch);
+        prev_ioff++;
+    }
+
+    if (!rc && ch == '\0') {
+        cb->init_off = prev_ioff - 1;
+        *userptr = cb->m;
+    }
+
+    return !rc ? CborNoError : CborErrorOutOfMemory;
+}
+
+/*
 void
 cbor_mbuf_reader_init(struct cbor_mbuf_reader *cb, struct os_mbuf *m,
                       int initial_offset)
 {
     struct os_mbuf_pkthdr *hdr;
-
-    cb->r.get8 = &cbor_mbuf_reader_get8;
-    cb->r.get16 = &cbor_mbuf_reader_get16;
-    cb->r.get32 = &cbor_mbuf_reader_get32;
-    cb->r.get64 = &cbor_mbuf_reader_get64;
-    cb->r.cmp = &cbor_mbuf_reader_cmp;
-    cb->r.cpy = &cbor_mbuf_reader_cpy;
 
     assert(OS_MBUF_IS_PKTHDR(m));
     hdr = OS_MBUF_PKTHDR(m);
@@ -102,3 +119,4 @@ cbor_mbuf_reader_init(struct cbor_mbuf_reader *cb, struct os_mbuf *m,
     cb->init_off = initial_offset;
     cb->r.message_size = hdr->omp_len - initial_offset;
 }
+*/
