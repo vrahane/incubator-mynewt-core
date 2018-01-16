@@ -51,20 +51,6 @@ cbor_mbuf_read_bytes(void *token, void *dst, size_t offset, size_t len)
 {
     struct cbor_mbuf_reader *cb = (struct cbor_mbuf_reader *)token;
     os_mbuf_copydata(cb->m, offset + cb->init_off, len, dst);
-    if (len == sizeof(uint8_t)) {
-        goto done;
-    } else if (len == sizeof(uint16_t)) {
-        *(uint16_t *)dst = cbor_ntohs(*(uint16_t *)dst);
-        goto done;
-    } else if (len == sizeof(uint32_t)) {
-        *(uint32_t *)dst = cbor_ntohl(*(uint32_t *)dst);
-        goto done;
-    } else if (len == sizeof(uint64_t)) {
-        *(uint64_t *)dst = cbor_ntohll(*(uint64_t *)dst);
-        goto done;
-    }
-
-done:
     return dst;
 }
 
