@@ -66,12 +66,9 @@ log_nmgr_encode_entry(struct log *log, struct log_offset *log_offset,
     char data[128];
     int dlen;
     int rc;
-    int rsp_len;
     CborError g_err = CborNoError;
     CborEncoder *penc = (CborEncoder*)log_offset->lo_arg;
     CborEncoder rsp;
-    CborEncoder cnt_encoder;
-    size_t bytes_written;
 
     rc = log_read(log, dptr, &ueh, 0, sizeof(ueh));
     if (rc != sizeof(ueh)) {
@@ -109,30 +106,10 @@ log_nmgr_encode_entry(struct log *log, struct log_offset *log_offset,
     }
     data[rc] = 0;
 
-    /* create a counting encoder for cbor */
-    cbor_encoder_init_writer(&cnt_encoder, &cbor_cnt_writer, &bytes_written);
-
-    /* NOTE This code should exactly match what is below */
-    g_err |= cbor_encoder_create_map(&cnt_encoder, &rsp, CborIndefiniteLength);
-    g_err |= cbor_encode_text_stringz(&rsp, "msg");
-    g_err |= cbor_encode_text_stringz(&rsp, data);
-    g_err |= cbor_encode_text_stringz(&rsp, "ts");
-    g_err |= cbor_encode_int(&rsp, ueh.ue_ts);
-    g_err |= cbor_encode_text_stringz(&rsp, "level");
-    g_err |= cbor_encode_uint(&rsp, ueh.ue_level);
-    g_err |= cbor_encode_text_stringz(&rsp, "index");
-    g_err |= cbor_encode_uint(&rsp,  ueh.ue_index);
-    g_err |= cbor_encode_text_stringz(&rsp, "module");
-    g_err |= cbor_encode_uint(&rsp,  ueh.ue_module);
-    g_err |= cbor_encoder_close_container(&cnt_encoder, &rsp);
-    rsp_len = log_offset->lo_data_len;
-    rsp_len += *(size_t *)&cnt_encoder.end;
-    if (rsp_len > 400) {
-        rc = OS_ENOMEM;
-        goto err;
+    if (log_offset->lo_data_len) {
+        cbor_encoder_init_writer(&rsp, &cbor_cnt_writer,
+                                 penc->end);
     }
-    log_offset->lo_data_len = rsp_len;
-
     g_err |= cbor_encoder_create_map(penc, &rsp, CborIndefiniteLength);
     g_err |= cbor_encode_text_stringz(&rsp, "msg");
     g_err |= cbor_encode_text_stringz(&rsp, data);
@@ -160,45 +137,44 @@ err:
  * @return 0 on success; non-zero on failure
  */
 static int
-log_encode_entries(struct log *log, CborEncoder *cb,
+log_encode_entries(struct log *log, CborEncoder *cb, uint8_t cnt,
                    int64_t ts, uint32_t index)
 {
     int rc;
     struct log_offset log_offset;
-    int rsp_len = 0;
     CborEncoder entries;
     CborError g_err = CborNoError;
-    CborEncoder cnt_encoder;
-    size_t bytes_written;
 
     memset(&log_offset, 0, sizeof(log_offset));
 
-    /* this code counts how long the message would be if we encoded */
-    cbor_encoder_init_writer(&cnt_encoder, &cbor_cnt_writer, &bytes_written);
-    g_err |= cbor_encode_text_stringz(&cnt_encoder, "entries");
-    g_err |= cbor_encoder_create_array(&cnt_encoder, &entries,
-                                       CborIndefiniteLength);
-    g_err |= cbor_encoder_close_container(&cnt_encoder, &entries);
-    rsp_len = cbor_encode_bytes_written(cb) +
-              cbor_encode_bytes_written(&cnt_encoder);
-    if (rsp_len > 400) {
-        rc = OS_ENOMEM;
-        goto err;
+    g_err |= cbor_encode_text_stringz(cb, "entries");
+
+    if (cnt) {
+        cbor_encoder_init_writer(&entries, &cbor_cnt_writer,
+                                 cb->end);
     }
 
-    g_err |= cbor_encode_text_stringz(cb, "entries");
     g_err |= cbor_encoder_create_array(cb, &entries, CborIndefiniteLength);
 
     log_offset.lo_arg       = &entries;
     log_offset.lo_index     = index;
     log_offset.lo_ts        = ts;
-    log_offset.lo_data_len  = rsp_len;
+
+    /*
+     * lo_data_len is used to signal if we are counting the number of bytes
+     * the encoding would require
+     */
+    if (cnt) {
+        log_offset.lo_data_len  = *(size_t *)cb->end;
+    }
 
     rc = log_walk(log, log_nmgr_encode_entry, &log_offset);
 
     g_err |= cbor_encoder_close_container(cb, &entries);
+    if (g_err) {
+        return MGMT_ERR_ENOMEM;
+    }
 
-err:
     return rc;
 }
 
@@ -209,12 +185,17 @@ err:
  * @return 0 on success; non-zero on failure
  */
 static int
-log_encode(struct log *log, CborEncoder *cb,
+log_encode(struct log *log, CborEncoder *cb, uint8_t cnt,
             int64_t ts, uint32_t index)
 {
     int rc;
     CborEncoder logs;
     CborError g_err = CborNoError;
+
+    if (cnt) {
+        cbor_encoder_init_writer(&logs, &cbor_cnt_writer,
+                                 cb->end);
+    }
 
     g_err |= cbor_encoder_create_map(cb, &logs, CborIndefiniteLength);
     g_err |= cbor_encode_text_stringz(&logs, "name");
@@ -223,12 +204,79 @@ log_encode(struct log *log, CborEncoder *cb,
     g_err |= cbor_encode_text_stringz(&logs, "type");
     g_err |= cbor_encode_uint(&logs, log->l_log->log_type);
 
-    rc = log_encode_entries(log, &logs, ts, index);
+    rc = log_encode_entries(log, &logs, cnt, ts, index);
     g_err |= cbor_encoder_close_container(cb, &logs);
     if (g_err) {
         return MGMT_ERR_ENOMEM;
     }
     return rc;
+}
+
+static int
+log_nmgr_cbor_encode(CborEncoder *enc, uint8_t cnt, uint64_t *index,
+                     char *name, int64_t *ts)
+{
+    CborError g_err = CborNoError;
+    CborEncoder logs;
+    struct log *log;
+    int name_len;
+    int rc;
+
+    rc = OS_OK;
+
+    g_err |= cbor_encode_text_stringz(enc, "next_index");
+    g_err |= cbor_encode_int(enc, g_log_info.li_next_index);
+
+    g_err |= cbor_encode_text_stringz(enc, "logs");
+
+    if (cnt) {
+        cbor_encoder_init_writer(&logs, &cbor_cnt_writer,
+                                 enc->end);
+    }
+
+    g_err |= cbor_encoder_create_array(enc, &logs,
+                                       CborIndefiniteLength);
+
+    name_len = strlen(name);
+    log = NULL;
+    while (1) {
+        log = log_list_get_next(log);
+        if (!log) {
+            break;
+        }
+
+        if (log->l_log->log_type == LOG_TYPE_STREAM) {
+            continue;
+        }
+
+        /* Conditions for returning specific logs */
+        if ((name_len > 0) && strcmp(name, log->l_name)) {
+            continue;
+        }
+
+        rc = log_encode(log, &logs, cnt, *ts, *index);
+        if (rc) {
+            goto err;
+        }
+
+        /* If a log was found, encode and break */
+        if (name_len > 0) {
+            break;
+        }
+    }
+
+
+    /* Running out of logs list and we have a specific log to look for */
+    if (!log && name_len > 0) {
+        rc = OS_EINVAL;
+    }
+
+err:
+    g_err |= cbor_encoder_close_container(enc, &logs);
+    g_err |= cbor_encode_text_stringz(enc, "rc");
+    g_err |= cbor_encode_int(enc, rc);
+
+    return g_err;
 }
 
 /**
@@ -239,15 +287,13 @@ log_encode(struct log *log, CborEncoder *cb,
 static int
 log_nmgr_read(struct mgmt_cbuf *cb)
 {
-    struct log *log;
     int rc;
     char name[LOG_NAME_MAX_LEN] = {0};
-    int name_len;
     int64_t ts;
     uint64_t index;
     CborError g_err = CborNoError;
-    CborEncoder logs;
     CborEncoder cbor_cnt_encoder;
+    size_t bytes_written;
 
     const struct cbor_attr_t attr[4] = {
         [0] = {
@@ -276,55 +322,14 @@ log_nmgr_read(struct mgmt_cbuf *cb)
         return rc;
     }
 
-    g_err |= cbor_encoder_init_writer(&cbor_cnt_encoder, &cbor_cnt_writer,
-                                      &bytes_written);
-
-    g_err |= cbor_encode_text_stringz(&cb->encoder, "next_index");
-    g_err |= cbor_encode_int(&cb->encoder, g_log_info.li_next_index);
-
-    g_err |= cbor_encode_text_stringz(&cb->encoder, "logs");
-    g_err |= cbor_encoder_create_array(&cb->encoder, &logs,
-                                       CborIndefiniteLength);
-
-    name_len = strlen(name);
-    log = NULL;
-    while (1) {
-        log = log_list_get_next(log);
-        if (!log) {
-            break;
-        }
-
-        if (log->l_log->log_type == LOG_TYPE_STREAM) {
-            continue;
-        }
-
-        /* Conditions for returning specific logs */
-        if ((name_len > 0) && strcmp(name, log->l_name)) {
-            continue;
-        }
-
-        rc = log_encode(log, &logs, ts, index);
-        if (rc) {
-            goto err;
-        }
-
-        /* If a log was found, encode and break */
-        if (name_len > 0) {
-            break;
-        }
+    /* Initially count and check if we can actually encode the log */
+    cbor_encoder_init_writer(&cbor_cnt_encoder, &cbor_cnt_writer,
+                             &bytes_written);
+    g_err |= log_nmgr_cbor_encode(&cbor_cnt_encoder, 1, &index, name, &ts);
+    if (g_err || bytes_written > 400) {
+        return MGMT_ERR_ENOMEM;
     }
-
-
-    /* Running out of logs list and we have a specific log to look for */
-    if (!log && name_len > 0) {
-        rc = OS_EINVAL;
-    }
-
-err:
-    g_err |= cbor_encoder_close_container(&cb->encoder, &logs);
-    g_err |= cbor_encode_text_stringz(&cb->encoder, "rc");
-    g_err |= cbor_encode_int(&cb->encoder, rc);
-
+    g_err |= log_nmgr_cbor_encode(&cb->encoder, 0, &index, name, &ts);
     if (g_err) {
         return MGMT_ERR_ENOMEM;
     }
