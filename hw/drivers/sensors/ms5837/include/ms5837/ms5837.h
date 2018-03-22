@@ -24,6 +24,8 @@
 #include <os/os.h>
 #include "os/os_dev.h"
 #include "sensor/sensor.h"
+#include "sensor/pressure.h"
+#include "sensor/temperature.h"
 
 #define MS5837_I2C_ADDRESS		0x76
 #define MS5837_NUMBER_COEFFS     7
@@ -32,8 +34,15 @@
 extern "C" {
 #endif
 
+#define MS5837_MAX_BUFLEN    7
+
 struct ms5837_pdd {
     uint16_t eeprom_coeff[MS5837_NUMBER_COEFFS + 1];
+    union {
+        struct sensor_temp_data std;
+        struct sensor_press_data spd;
+        uint8_t buffer[MS5837_MAX_BUFLEN];
+    } databuf;
 };
 
 struct ms5837_cfg {

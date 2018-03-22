@@ -17,22 +17,14 @@
 # under the License.
 #
 
-pkg.name: hw/drivers/sensors/ms5837
-pkg.description: Driver for the MS5837 light to digital sensor
-pkg.author: "Vipul Rahane <vipul@runtime.io>"
-pkg.homepage: "http://www.runtime.io/"
+pkg.name: hw/i2cmgr
+pkg.description: "I2C Mgr for master talking to multiple slave devices
+                  sharing I2C bus at multiple task level"
 pkg.keywords:
-    - TE connectivity
-    - ms5837
-    - i2c
-    - sensor
 
 pkg.deps:
-    - "@apache-mynewt-core/kernel/os"
     - "@apache-mynewt-core/hw/hal"
-    - "@apache-mynewt-core/hw/sensor"
-    - "@apache-mynewt-core/hw/i2cmgr"
+    - "@apache-mynewt-core/kernel/os"
 
-pkg.req_apis:
-    - stats
-    - log
+pkg.init:
+    i2cmgr_pkg_init: 501

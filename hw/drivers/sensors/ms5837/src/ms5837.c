@@ -26,6 +26,7 @@
 #include "os/os.h"
 #include "sysinit/sysinit.h"
 #include "hal/hal_i2c.h"
+#include "i2cmgr/i2cmgr.h"
 #include "sensor/sensor.h"
 #include "ms5837/ms5837.h"
 #include "sensor/temperature.h"
@@ -313,6 +314,45 @@ err:
     return (rc);
 }
 
+i2c_user_arg_t read_arg;
+i2c_user_arg_t write_arg;
+
+static int
+ms5837_i2c_writelen_done(void *arg)
+{
+    i2c_user_arg_t *wa = arg;
+
+    if (!wa->iua_rc) {
+        console_printf("ms5837 write done\n");
+    } else {
+        console_printf("ms5837 write failed\n");
+        MS5837_ERR("I2C manager command write failed at address 0x%02X at job"
+                   "0x%08x for I2C number %u\n", wa->iua_pdata->address,
+                    wa->iua_ij, wa->iua_itf_num);
+        STATS_INC(g_ms5837stats, write_errors);
+    }
+
+    return wa->iua_rc;
+}
+
+static int
+ms5837_i2c_readlen_done(void *arg)
+{
+    i2c_user_arg_t *ra = arg;
+
+    if (!ra->iua_rc) {
+        console_printf("ms5827 read done\n");
+    } else {
+        console_printf("ms5837 read failed\n");
+        MS5837_ERR("I2C manager command read failed at address 0x%02X at job"
+                   "0x%08x for I2C number %u\n", ra->iua_pdata->address,
+                    ra->iua_ij, ra->iua_itf_num);
+        STATS_INC(g_ms5837stats, read_errors);
+    }
+
+    return ra->iua_rc;
+}
+
 /**
  * Write multiple length data to MS5837 sensor over I2C
  *
@@ -320,12 +360,13 @@ err:
  * @param register address
  * @param variable length payload
  * @param length of the payload to write
+ * @param delay in micro seconds
  *
  * @return 0 on success, non-zero on failure
  */
 int
 ms5837_writelen(struct sensor_itf *itf, uint8_t addr, uint8_t *buffer,
-                uint8_t len)
+                uint8_t len, uint32_t delay)
 {
     int rc;
 
@@ -336,13 +377,34 @@ ms5837_writelen(struct sensor_itf *itf, uint8_t addr, uint8_t *buffer,
     };
 
     /* Register write */
-    rc = hal_i2c_master_write(itf->si_num, &data_struct, OS_TICKS_PER_SEC / 10, 1);
+#if MYNEWT_VAL(USE_I2CMGR)
+    struct i2c_job *ij;
+
+    ij = i2c_create_job(itf->si_num, 0, ms5837_i2c_writelen_done,
+                        (void *)&write_arg);
+    if (!ij) {
+        rc = SYS_ENOMEM;
+        goto err;
+    }
+
+    rc = i2c_master_write(ij, &data_struct, OS_TICKS_PER_SEC / 10, 0, 1);
+    if (rc) {
+        goto err;
+    }
+
+    rc = i2c_insert_job(itf->si_num, ij);
+    if (rc) {
+        goto err;
+    }
+#else
+    rc = hal_i2c_master_write(itf->si_num, &data_struct, OS_TICKS_PER_SEC / 10, 0, 1);
     if (rc) {
         MS5837_ERR("I2C write command write failed at address 0x%02X\n",
                    data_struct.address);
         STATS_INC(g_ms5837stats, write_errors);
         goto err;
     }
+#endif
 
     return 0;
 err:
@@ -356,12 +418,13 @@ err:
  * @param register address
  * @param variable length buffer
  * @param length of the payload to read
+ * @param Delay in micro seconds
  *
  * @return 0 on success, non-zero on failure
  */
 int
 ms5837_readlen(struct sensor_itf *itf, uint8_t addr, uint8_t *buffer,
-               uint8_t len)
+               uint8_t len, uint32_t delay)
 {
     int rc;
     uint8_t payload[3] = {addr, 0, 0};
@@ -376,24 +439,56 @@ ms5837_readlen(struct sensor_itf *itf, uint8_t addr, uint8_t *buffer,
     memset(buffer, 0, len);
 
     /* Command write */
-    rc = hal_i2c_master_write(itf->si_num, &data_struct, OS_TICKS_PER_SEC / 10, 1);
+#if MYNEWT_VAL(USE_I2CMGR)
+    struct i2c_job *ij;
+
+    ij = i2c_create_job(itf->si_num, 0, ms5837_i2c_readlen_done,
+                        (void *)&read_arg);
+    if (!ij) {
+        rc = SYS_ENOMEM;
+        goto err;
+    }
+
+    rc = i2c_master_write(ij, &data_struct, OS_TICKS_PER_SEC / 10, 0, 1);
+    if (rc) {
+        goto err;
+    }
+
+#else
+    /* delay conversion depending on resolution */
+    os_cputime_delay_usecs(delay);
+
+    rc = hal_i2c_master_write(itf->si_num, &data_struct, OS_TICKS_PER_SEC / 10, 0, 1);
     if (rc) {
         MS5837_ERR("I2C read command write failed at address 0x%02X\n",
                    data_struct.address);
         STATS_INC(g_ms5837stats, write_errors);
         goto err;
     }
+#endif
 
     /* Read len bytes back */
     memset(payload, 0, sizeof(payload));
     data_struct.len = len;
-    rc = hal_i2c_master_read(itf->si_num, &data_struct, OS_TICKS_PER_SEC / 10, 1);
+
+#if MYNEWT_VAL(USE_I2CMGR)
+    rc = i2c_master_read(ij, &data_struct, OS_TICKS_PER_SEC / 10, delay, 1);
+    if (rc) {
+        goto err;
+    }
+
+    rc = i2c_insert_job(itf->si_num, ij);
+    if (rc) {
+        goto err;
+    }
+#else
+    rc = hal_i2c_master_read(itf->si_num, &data_struct, OS_TICKS_PER_SEC / 10, 0, 1);
     if (rc) {
         MS5837_ERR("Failed to read from 0x%02X:0x%02X\n", data_struct.address, addr);
         STATS_INC(g_ms5837stats, read_errors);
         goto err;
     }
-
+#endif
     /* Copy the I2C results into the supplied buffer */
     memcpy(buffer, payload, len);
 
@@ -420,7 +515,7 @@ ms5837_read_eeprom(struct sensor_itf *itf, uint16_t *coeff)
 
     for(idx = 0; idx < MS5837_NUMBER_COEFFS; idx++) {
         rc = ms5837_readlen(itf, MS5837_CMD_PROM_READ_ADDR0 + idx * 2,
-                            (uint8_t *)(payload + idx), 2);
+                            (uint8_t *)(payload + idx), 2, 0);
         if (rc) {
             goto err;
         }
@@ -544,16 +639,14 @@ ms5837_get_raw_data(struct sensor_itf *itf, uint8_t cmd, uint32_t *data)
     uint8_t payload[3] = {0};
 
     /* send conversion command based on OSR, temperature and pressure */
-    rc = ms5837_writelen(itf, cmd, payload, 0);
+    rc = ms5837_writelen(itf, cmd, payload, 0, 0);
     if (rc) {
         goto err;
     }
 
-    /* delay conversion depending on resolution */
-    os_cputime_delay_usecs(cnv_time[(cmd & MS5837_CNV_OSR_MASK)/2]);
-
     /* read adc value */
-    rc = ms5837_readlen(itf, MS5837_CMD_ADC_READ, payload, 3);
+    rc = ms5837_readlen(itf, MS5837_CMD_ADC_READ, payload, 3,
+                        cnv_time[(cmd & MS5837_CNV_OSR_MASK)/2]);
     if (rc) {
         goto err;
     }
@@ -641,7 +734,7 @@ ms5837_reset(struct sensor_itf *itf)
 
     txdata = 0;
 
-    return ms5837_writelen(itf, MS5837_CMD_RESET, &txdata, 0);
+    return ms5837_writelen(itf, MS5837_CMD_RESET, &txdata, 0, 0);
 }
 
 /**
