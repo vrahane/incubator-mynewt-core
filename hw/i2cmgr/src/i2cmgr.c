@@ -324,8 +324,8 @@ i2c_process_job_op(struct i2c_job_op *ijo, uint8_t ii_num)
 
     if (ijo->ijo_delay) {
         currtime = os_get_uptime_usec();
-        /* If we are past required delay */
-        if ((currtime - ijo->ijo_prev_uptime) > ijo->ijo_delay) {
+        /* If we are not passed the delay */
+        if ((currtime - ijo->ijo_prev_uptime) < ijo->ijo_delay) {
             /* job not completed, will have to revisit */
             rc = SYS_EAGAIN;
         }
