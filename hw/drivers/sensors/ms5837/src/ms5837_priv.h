@@ -93,8 +93,9 @@ extern "C" {
  * @param register address
  * @param variable length payload
  * @param length of the payload to write
+ * @param delay in micro seconds
  */
-int ms5837_writelen(struct sensor_itf *itf, uint8_t addr, uint8_t *payload, uint8_t len);
+int ms5837_writelen(struct sensor_itf *itf, uint8_t addr, uint8_t *payload, uint8_t len, uint32_t delay);
 
 /**
  * Read multiple length data from MS5837 sensor over SPI
@@ -103,8 +104,9 @@ int ms5837_writelen(struct sensor_itf *itf, uint8_t addr, uint8_t *payload, uint
  * @param register address
  * @param variable length payload
  * @param length of the payload to read
+ * @param delay in micro seconds
  */
-int ms5837_readlen(struct sensor_itf *itf, uint8_t addr, uint8_t *payload, uint8_t len);
+int ms5837_readlen(struct sensor_itf *itf, uint8_t addr, uint8_t *payload, uint8_t len, uint32_t delay);
 
 #ifdef __cplusplus
 }

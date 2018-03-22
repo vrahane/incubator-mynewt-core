@@ -39,6 +39,9 @@ pkg.deps:
     - test/flash_test
     - test/i2c_scan
 
+pkg.deps.USE_I2CMGR:
+    - hw/i2cmgr
+
 pkg.deps.SENSOR_OIC:
    #- mgmt/oicmgr
 

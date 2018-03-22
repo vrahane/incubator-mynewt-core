@@ -322,6 +322,9 @@ struct sensor_type_traits {
 
     struct sensor *stt_sensor;
 
+    /* databuf for sensor type */
+    sensor_data_t stt_databuf;
+
     /* Next item in the sensor traits list.  The head of this list is
      * contained within the sensor object.
      */
