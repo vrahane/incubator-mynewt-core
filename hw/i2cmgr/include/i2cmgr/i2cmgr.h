@@ -112,6 +112,8 @@ typedef struct {
     struct hal_i2c_master_data *iua_pdata;
     uint8_t iua_itf_num;
     uint8_t iua_last_op;
+    uint8_t iua_payload_type;
+    void *iua_arg;
 } i2c_user_arg_t;
 
 /**
