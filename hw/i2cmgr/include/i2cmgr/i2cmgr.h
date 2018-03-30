@@ -24,8 +24,7 @@
 #define I2CMGR_H_
 
 /**
- * Callback for I2C job, gets called after all jobs in the I2C
- * job list are executed
+ * Callback for the I2C job
  *
  * @param argument
  *
@@ -33,169 +32,71 @@
  */
 typedef int (*i2cmgr_data_func_t)(void *arg);
 
-/* Operations allowed on an I2C interface */
-#define I2C_OP_READ      0
-#define I2C_OP_WRITE     1
-#define I2C_OP_DELAY     2
-
-/*
- * I2C interface containing a list of jobs to be completed for current
- * interface
- */
+/* I2C interface */
 struct i2c_itf {
     /* I2C number */
     uint8_t ii_num;
-    /* the lock for the job list */
-    struct os_mutex ii_jobq_lock;
-    /* previous uptime in us */
-    int64_t ii_prev_uptime;
-    /* head of the list of job queues */
-    SLIST_HEAD(, i2c_job) ii_job_list;
+    /* Eventq ptr per interface */
+    struct os_eventq *ii_evq;
+    /* startup event for the interface */
+    struct os_event ii_ev;
+    /* Task from which the I2C interface is getting accessed */
+    struct os_task *ii_task;
 
     SLIST_ENTRY(i2c_itf) ii_next;
 };
 
-/**
- * I2C job containing a list of job ops specifying a job priority and user
- * function which would get called after job completion
- */
+/* I2C job */
 struct i2c_job {
-    /* job priority */
-    uint8_t ij_prio;
-    /* notification function */
-    i2cmgr_data_func_t ij_user_func;
-    /* argument for the user_func */
-    void *ij_user_arg;
-    /* the lock for the job op list */
-    struct os_mutex ij_job_op_lock;
-    /* previous uptime */
-    int64_t ij_prev_uptime;
-    /* head of the list of job queues */
-    SLIST_HEAD(, i2c_job_op) ij_job_op_list;
-
-    SLIST_ENTRY(i2c_job) ij_next;
+    /* timer per job */
+    struct hal_timer ij_timer;
+    /* event for the job */
+    struct os_event ij_ev;
+    /* Job semaphore */
+    struct os_sem ij_sem;
 };
 
 /**
- * I2C job op for doing Read Vs Write
- */
-struct i2c_job_op {
-    /* job type */
-    uint8_t ijo_op:1;
-    /* last op */
-    uint8_t ijo_last_op:1;
-    /* buffer */
-    union {
-        /*
-         * The buffer would be 4 bytes by default, a bigger buffer will be
-         * allocated on the heap if required depending on what length is
-         * required by the job op
-         */
-        uint8_t ijo_fixbuf[MYNEWT_VAL(I2C_FIXBUF_LEN)];
-        uint8_t *ijo_varbuf;
-    };
-    /* hal I2C master data */
-    struct hal_i2c_master_data ijo_pdata;
-    /* timeout */
-    uint32_t ijo_timeout;
-    /* Delay to be exercised after job op */
-    uint32_t ijo_delay;
-    /* previous uptime */
-    int64_t ijo_prev_uptime;
-
-    SLIST_ENTRY(i2c_job_op) ijo_next;
-};
-
-typedef struct {
-    struct i2c_job *iua_ij;
-    int iua_rc;
-    struct hal_i2c_master_data *iua_pdata;
-    uint8_t iua_itf_num;
-    uint8_t iua_last_op;
-    uint8_t iua_payload_type;
-    void *iua_arg;
-} i2c_user_arg_t;
-
-/**
- * Initialize I2C manager, insert I2C interfaces, allocate stack, initialize
- * eventq for processing I2C transaction event and initialize the I2C manage
- * task
+ * Initialize I2C manager, insert I2C interfaces, initialize
+ * eventq for processing I2C transaction
  *
  */
 void i2cmgr_init(void);
 
 /**
- * Sends a start condition and writes <ipdata->length> bytes of data on the i2c
- * bus. This API does NOT issue a stop condition unless `last_op` is set to `1`
+ * Initialize a job with provided callback and argument and delay
  *
- * @param The I2C job ptr
- * @param Context containing address, databuffer and buffer length
- * @param Time to wait for transaction to complete in ticks
- * @param Delay in micro seconds to be exercised before th job op gets executed
- * @param Master should send a STOP at the end to signify end of
- *        transaction
+ * @param job to be initilized
  *
- * @return 0 on success, and non-zero error code on failure
+ * @return 0 on success, non-zero on failure
  */
-int i2c_master_write(struct i2c_job *ij, struct hal_i2c_master_data *pdata,
-                     uint32_t timeout, uint32_t delay_us, uint8_t last_op);
+int i2cmgr_job_init(struct i2c_job *job);
 
 /**
- * Sends a start condition and reads <pdata->length> bytes of data on the i2c
- * bus. This API does NOT issue a stop condition unless `last_op` is set to `1`
- *
- * @param The I2C job ptr
- * @param Context containing address, databuffer and buffer length
- * @param Time to wait for transaction to complete in ticks
- * @param Delay in micro seconds to be exercised before th job op gets executed
- * @param Master should send a STOP at the end to signify end of
- *        transaction
- *
- * @return 0 on success, and non-zero error code on failure
- */
-int i2c_master_read(struct i2c_job *ij, struct hal_i2c_master_data *pdata,
-                    uint32_t timeout, uint32_t delay_us, uint8_t last_op);
-
-/*
- * Insert a job in the job list
- *
- * @param I2C interface number
- * @param I2C job
- *
- * @return 0 on success, non-zero on failure
- */
-int
-i2c_insert_job(uint8_t i2c_num, struct i2c_job *ij);
-
-/*
- * Remove a job from the job list
- *
- * @param I2C interface number
- * @param I2C job
- *
- * @return 0 on success, non-zero on failure
- */
-int
-i2c_remove_job(uint8_t i2c_num, struct i2c_job *ij);
-
-/*
- * Create a job with given parameters
+ * Blocking I2C job using i2cmgr
  *
  * @param I2C Interface number
- * @param Job priority
- * @param job callback
- * @param interface number passed as job callabck argument
+ * @param Job to be executed
+ * @param delay in usecs
+ * @param job callback to be called
+ * @param job callback argument
+ *
+ * @return 0 on success, non-zero on failure
  */
-struct i2c_job *
-i2c_create_job(uint8_t i2c_num, uint8_t prio, i2cmgr_data_func_t user_func,
-               void *user_arg);
+int i2cmgr_job_exec(uint8_t i2c_num, struct i2c_job *job, uint32_t delay_us,
+                    i2cmgr_data_func_t job_cb, void *job_arg);
 
 /**
- * Puts an I2C event on the i2cmgr evq
+ * Non-blocking I2C job using i2cmgr
  *
- * @param I2C mgr event context
+ * @param I2C Interface number
+ * @param Job to be executed
+ * @param delay in usecs
+ * @param job callback to be called
+ * @param job callback argument
+ *
+ * @return 0 on success, non-zero on failure
  */
-void
-i2cmgr_put_evt(void *arg);
-
+int i2cmgr_job_noblock(uint8_t i2c_num, struct i2c_job *job, uint32_t delay_us,
+                       i2cmgr_data_func_t job_cb, void *job_arg);
 #endif /* _I2CMGR_H_ */
