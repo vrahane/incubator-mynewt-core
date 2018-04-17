@@ -296,7 +296,7 @@ i2cmgr_init(void)
 #else
     i2cmgr_evq_set(&i2c_itf4, os_eventq_dflt_get());
 #endif
-
+    i2cmgr_put_startup_event();
 }
 
 /* Non-blocking I2C job */

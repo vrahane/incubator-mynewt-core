@@ -81,16 +81,23 @@ static const struct sensor_driver g_ms5837_sensor_driver = {
     .sd_set_config = ms5837_sensor_set_config,
 };
 
-struct iua_read_arg {
+struct i2c_arg {
     struct sensor *ira_sensor;
-    sensor_data_func_t ira_data_func;
-    void *ira_data_arg;
+    struct hal_i2c_master_data *ira_pdata;
 };
 
-i2c_user_arg_t read_arg;
-i2c_user_arg_t write_arg;
-struct iua_read_arg read_arg_ira;
+struct i2c_read_ctx {
+    sensor_data_func_t ira_data_func;
+    void *ira_data_arg;
+    struct i2c_arg *ira;
+};
 
+struct i2c_write_ctx {
+    struct i2c_arg *ira;
+};
+
+struct i2c_job read_job;
+struct i2c_job write_job;
 
 /**
  * Expects to be called back through os_dev_create().
@@ -335,25 +342,34 @@ err:
 
 
 static int
-ms5837_i2c_writelen_done(void *arg)
+ms5837_i2c_writelen(void *arg)
 {
-    i2c_user_arg_t *wa = arg;
+    int rc;
+    struct hal_i2c_master_data *pdata;
 
-    if (!wa->iua_rc) {
+    rc = hal_i2c_master_write(itf->si_num, pdata, OS_TICKS_PER_SEC / 10, 1);
+    if (rc) {
+        MS5837_ERR("I2C write command write failed at address 0x%02X\n",
+                   pdata.address);
+        STATS_INC(g_ms5837stats, write_errors);
+        goto err;
+    }
+
+    if (!rc) {
         console_printf("ms5837 write done\n");
     } else {
         console_printf("ms5837 write failed\n");
-        MS5837_ERR("I2C manager command write failed at address 0x%02X at job"
-                   "0x%08x for I2C number %u\n", wa->iua_pdata->address,
-                    wa->iua_ij, wa->iua_itf_num);
+        MS5837_ERR("I2C manager command write failed at address 0x%02X "
+                   "for I2C number %u\n", pdata->address,
+                   wa->iua_itf_num);
         STATS_INC(g_ms5837stats, write_errors);
     }
 
-    return wa->iua_rc;
+    return rc;
 }
 
 static int
-ms5837_i2c_readlen_done(void *arg)
+ms5837_i2c_readlen(void *arg)
 {
     int rc;
     int idx;
@@ -472,20 +488,13 @@ ms5837_writelen(struct sensor_itf *itf, uint8_t addr, uint8_t *buffer,
 
     /* Register write */
 #if MYNEWT_VAL(USE_I2CMGR)
-    struct i2c_job *ij;
-    ij = i2c_create_job(itf->si_num, 0, ms5837_i2c_writelen_done,
-                        (void *)&write_arg);
-    if (!ij) {
-        rc = SYS_ENOMEM;
-        goto err;
-    }
-
-    rc = i2c_master_write(ij, &data_struct, OS_TICKS_PER_SEC / 10, 0, 1);
+    rc = i2cmgr_job_init(&write_job);
     if (rc) {
         goto err;
     }
 
-    rc = i2c_insert_job(itf->si_num, ij);
+    rc = i2cmgr_job_noblock(itf->si_num, &write_job, 0, ms5837_i2c_writelen,
+                            (void *)&write_arg);
     if (rc) {
         goto err;
     }

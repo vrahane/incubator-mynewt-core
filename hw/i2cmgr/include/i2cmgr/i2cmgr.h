@@ -71,7 +71,7 @@ struct i2c_job {
 void i2cmgr_init(void);
 
 /**
- * Initialize a job with provided callback and argument and delay
+ * Initialize a job
  *
  * @param job to be initilized
  *
