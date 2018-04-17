@@ -29,7 +29,8 @@
  *
  * @param argument
  *
- * @return 0 on success, non-zero error code on failure.
+ * @return 0 on success, non-zero on failure
+ *
  */
 typedef int (*i2cmgr_data_func_t)(void *arg);
 
@@ -45,12 +46,12 @@ typedef int (*i2cmgr_data_func_t)(void *arg);
 struct i2c_itf {
     /* I2C number */
     uint8_t ii_num;
-    /* the lock for the job list */
-    struct os_mutex ii_jobq_lock;
-    /* previous uptime in us */
-    int64_t ii_prev_uptime;
-    /* head of the list of job queues */
-    SLIST_HEAD(, i2c_job) ii_job_list;
+    /* Eventq ptr per interface */
+    struct os_eventq *ii_evq;
+    /* startup event for the interface */
+    struct os_event ii_startup_ev;
+    /* Task from which the I2C interface is getting accessed */
+    struct os_task *ii_task;
 
     SLIST_ENTRY(i2c_itf) ii_next;
 };
@@ -60,50 +61,18 @@ struct i2c_itf {
  * function which would get called after job completion
  */
 struct i2c_job {
-    /* job priority */
-    uint8_t ij_prio;
-    /* notification function */
-    i2cmgr_data_func_t ij_user_func;
-    /* argument for the user_func */
-    void *ij_user_arg;
-    /* the lock for the job op list */
-    struct os_mutex ij_job_op_lock;
-    /* previous uptime */
-    int64_t ij_prev_uptime;
-    /* head of the list of job queues */
-    SLIST_HEAD(, i2c_job_op) ij_job_op_list;
-
-    SLIST_ENTRY(i2c_job) ij_next;
-};
-
-/**
- * I2C job op for doing Read Vs Write
- */
-struct i2c_job_op {
-    /* job type */
-    uint8_t ijo_op:1;
-    /* last op */
-    uint8_t ijo_last_op:1;
-    /* buffer */
-    union {
-        /*
-         * The buffer would be 4 bytes by default, a bigger buffer will be
-         * allocated on the heap if required depending on what length is
-         * required by the job op
-         */
-        uint8_t ijo_fixbuf[MYNEWT_VAL(I2C_FIXBUF_LEN)];
-        uint8_t *ijo_varbuf;
-    };
-    /* hal I2C master data */
-    struct hal_i2c_master_data ijo_pdata;
-    /* timeout */
-    uint32_t ijo_timeout;
-    /* Delay to be exercised after job op */
-    uint32_t ijo_delay;
-    /* previous uptime */
-    int64_t ijo_prev_uptime;
-
-    SLIST_ENTRY(i2c_job_op) ijo_next;
+    /* I2C interface number */
+    uint8_t ij_itf_num;
+    /* timer per job */
+    struct hal_timer ij_timer;
+    /* event for the job */
+    struct os_event ij_ev;
+    /* Job semaphore */
+    struct os_sem ij_sem;
+    /* I2C job data function */
+    i2cmgr_data_func_t ij_cb;
+    /* I2C job arg */
+    void *ij_arg;
 };
 
 typedef struct {

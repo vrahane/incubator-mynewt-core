@@ -28,26 +28,6 @@
 #include "assert.h"
 #include "sysinit/sysinit.h"
 
-/* I2C Mgr Task */
-#define I2CMGR_TASK_PRIO (MYNEWT_VAL(I2CMGR_TASK_PRIO))
-#define I2CMGR_STACK_SIZE OS_STACK_ALIGN(MYNEWT_VAL(I2CMGR_STACK_SIZE))
-
-static struct os_task i2cmgr_task;
-
-static os_membuf_t i2c_job_mem[
-    OS_MEMPOOL_SIZE(MYNEWT_VAL(I2C_JOB_MPOOL_MAX_NUM),
-                    sizeof (struct i2c_job))
-];
-
-static struct os_mempool i2c_job_pool;
-
-static os_membuf_t i2c_job_op_mem[
-    OS_MEMPOOL_SIZE(MYNEWT_VAL(I2C_JOB_OP_MPOOL_MAX_NUM),
-                    sizeof (struct i2c_job_op))
-];
-
-static struct os_mempool i2c_job_op_pool;
-
 #define I2C(n) I2C_##n
 
 #if MYNEWT_VAL(I2C_3)
@@ -68,70 +48,19 @@ struct i2c_itf i2c_itf0;
  * I2C manager which consists of the eventqand the HEAD of the interface list
  */
 struct i2cmgr {
-    /* I2C job eventq */
-    struct os_eventq i_evq;
     /* I2C interface list */
     SLIST_HEAD(, i2c_itf) i_itf_list;
 } i2cmgr;
 
-static void i2cmgr_ev_cb(struct os_event *ev);
+static void i2cmgr_startup_ev_cb(struct os_event *ev);
+static void i2cmgr_event_cb(struct os_event *ev);
 
 /*
  * Event for processing I2C manager events (READ/WRITE)
  */
-static struct os_event i2cmgr_evt = {
-    .ev_cb = i2cmgr_ev_cb,
+static struct os_event i2cmgr_startup_evt = {
+    .ev_cb = i2cmgr_startup_ev_cb,
 };
-
-/*
- * Allocate memory block for an I2C job
- */
-static struct i2c_job *
-i2c_job_alloc(void)
-{
-    struct i2c_job *ij;
-
-    ij = os_memblock_get(&i2c_job_pool);
-    if (ij) {
-        memset(ij, 0, sizeof(*ij));
-    }
-
-    return ij;
-}
-
-/*
- * Allocate memory block for an I2C job op
- */
-static struct i2c_job_op *
-i2c_job_op_alloc(void)
-{
-    struct i2c_job_op *ijo;
-
-    ijo = os_memblock_get(&i2c_job_op_pool);
-    if (ijo) {
-        memset(ijo, 0, sizeof(*ijo));
-    }
-
-    return ijo;
-}
-
-/*
- * Free memory block for an I2C job back to the pool
- */
-static int
-i2c_job_free(struct i2c_job *ij)
-{
-     return os_memblock_put(&i2c_job_pool, ij);
-}
-
-/*
- * Free memory block for an I2C job op back to the pool
- */
-static int
-i2c_job_op_free(struct i2c_job_op *ijo)
-{
-    return os_memblock_put(&i2c_job_op_pool, ijo);
-}
 
 /*
  * Insert I2C interface in the interface list
@@ -157,19 +86,99 @@ i2cmgr_remove(struct i2c_itf *ii)
     SLIST_REMOVE(&i2cmgr.i_itf_list, ii, i2c_itf, ii_next);
 }
 
+/*
+ * Post startup event to all I2C interfaces
+ */
+void
+i2cmgr_put_startup_event(void)
+{
+    struct i2c_itf *ii;
+
+    SLIST_FOREACH(ii, &i2cmgr.i_itf_list, ii_next) {
+        ii->ii_startup_ev.ev_arg = ii;
+        os_eventq_put(ii->ii_evq, &ii->ii_startup_ev);
+    }
+}
+
 /**
- * Lock job list
+ * Put job event on the I2C interface eventq
  *
- * @param The i2c interface to lock the job list for
+ * @param I2C job ptr
+ */
+void
+i2cmgr_put_evt(struct i2c_job *ij)
+{
+    struct i2c_itf *ii;
+
+    ii = i2c_get_itf_bynum(ij->ij_itf_num);
+    if (!ii) {
+        /* No I2C interface found */
+        return;
+    }
+
+    os_eventq_put(ii->ii_evq, ij->ij_ev);
+}
+
+/*
+ * event callback for calling job callback
+ */
+static void
+i2cmgr_event_cb(struct os_event *ev)
+{
+    struct i2c_job *ij;
+    int rc;
+
+    ij = (struct i2c_job *)ev->ev_arg;
+
+    ij->ij_cb(ij->ij_arg);
+
+    i2c_job_unlock(ij);
+}
+
+/**
+ * I2Cmgr timeout handler function
+ *
+ * @param argument
+ */
+void
+i2cmgr_handle_tmo(void *arg)
+{
+    struct i2c_job *ij;
+
+    ij = (struct i2c_timer_ctx *)arg;
+
+    i2cmgr_put_evt(ij);
+}
+
+/**
+ * Initialize i2c_job
+ *
+ * @param i2c_job to initialize
+ *
+ * @return 0 on success, non-zero on failure
+ */
+int
+i2cmgr_job_init(struct i2c_job *ij)
+{
+    os_sem_init(&ij->ij_sem, 0);
+    ij->ij_ev.ev_cb  = i2cmgr_event_cb;
+    ij->ij_ev.ev_arg = ij;
+    os_cputime_timer_init(&ij_timer, i2cmgr_handle_tmo, ij);
+}
+
+/**
+ * Lock job
+ *
+ * @param The i2c job to lock
  *
  * @return 0 on success, non-zero on failure
  */
 static int
-i2c_jobq_lock(struct i2c_itf *ii)
+i2c_job_lock(struct i2c_job *ij)
 {
     int rc;
 
-    rc = os_mutex_pend(&ii->ii_jobq_lock, OS_TIMEOUT_NEVER);
+    rc = os_sem_pend(&ij->ij_sem, OS_TIMEOUT_NEVER);
     if (rc == 0 || rc == OS_NOT_STARTED) {
         return 0;
     }
@@ -178,16 +187,16 @@ i2c_jobq_lock(struct i2c_itf *ii)
 }
 
 /**
- * Unlock the job list
+ * Unlock the job
  *
- * @param The i2c interface to unlock the job list for
+ * @param The i2c job to unlock
  *
  * @return 0 on success, non-zero on failure
  */
 static void
-i2c_jobq_unlock(struct i2c_itf *ii)
+i2c_job_unlock(struct i2c_job *ij)
 {
-    (void)os_mutex_release(&ii->ii_jobq_lock);
+    (void)os_sem_release(&ij->ij_sem);
 }
 
 /*
@@ -222,351 +231,15 @@ i2c_get_itf_bynum(uint8_t i2c_num)
 }
 
 /*
- * Insert a job in the job list
- *
- * @param I2C interface number
- * @param I2C job
- *
- * @return 0 on success, non-zero on failure
- */
-int
-i2c_insert_job(uint8_t i2c_num, struct i2c_job *ij)
-{
-    struct i2c_job *cursor, *prev;
-    struct i2c_itf *ii;
-    int rc;
-
-    /* Get the I2C interface with the I2C number */
-    ii = i2c_get_itf_bynum(i2c_num);
-    if (!ii) {
-        rc = SYS_EINVAL;
-        goto err;
-    }
-
-    prev = NULL;
-
-    rc = i2c_jobq_lock(ii);
-    if (rc) {
-        goto err;
-    }
-
-    SLIST_FOREACH(cursor, &ii->ii_job_list, ij_next) {
-        if (cursor->ij_prio < ij->ij_prio) {
-            break;
-        }
-        prev = cursor;
-    }
-
-    if (prev == NULL) {
-        SLIST_INSERT_HEAD(&ii->ii_job_list, ij, ij_next);
-    } else {
-        SLIST_INSERT_AFTER(cursor, ij, ij_next);
-    }
-
-    i2c_jobq_unlock(ii);
-
-    i2cmgr_put_evt(NULL);
-
-    return 0;
-err:
-    return rc;
-}
-
-/*
- * Remove a job from the job list
- *
- * @param I2C interface number
- * @param I2C job
- *
- * @return 0 on success, non-zero on failure
- */
-int
-i2c_remove_job(uint8_t i2c_num, struct i2c_job *ij)
-{
-    struct i2c_itf *ii;
-    int rc;
-
-    /* Get the I2C interface with the I2C number */
-    ii = i2c_get_itf_bynum(i2c_num);
-    if (!ii) {
-        rc = SYS_EINVAL;
-        goto err;
-    }
-
-    rc = i2c_jobq_lock(ii);
-    if (rc) {
-        goto err;
-    }
-
-    SLIST_REMOVE(&ii->ii_job_list, ij, i2c_job, ij_next);
-
-    /* Free the job back to the pool */
-    rc = i2c_job_free(ij);
-
-    i2c_jobq_unlock(ii);
-
-err:
-    return rc;
-}
-
-/*
- * Process a job op, for I2C, there are just two ops READ and WRITE that are
- * available to an application
- */
-static int
-i2c_process_job_op(struct i2c_job_op *ijo, uint8_t ii_num)
-{
-    int rc;
-    struct i2c_itf *ii;
-    int64_t currtime;
-
-    rc = SYS_EOK;
-
-    if (ijo->ijo_delay) {
-        currtime = os_get_uptime_usec();
-        /* If we are not passed the delay */
-        if ((currtime - ijo->ijo_prev_uptime) < ijo->ijo_delay) {
-            /* job not completed, will have to revisit */
-            rc = SYS_EAGAIN;
-        }
-
-        ii = i2c_get_itf_bynum(ii_num);
-
-        /* update previous uptime */
-        ijo->ijo_prev_uptime = currtime;
-        if (rc) {
-            goto err;
-        }
-
-        ii->ii_prev_uptime = currtime;
-
-        ijo->ijo_delay = 0;
-    }
-
-
-    if (ijo->ijo_op == I2C_OP_WRITE) {
-        /* I2C master write */
-        rc = hal_i2c_master_write(ii_num, &ijo->ijo_pdata, ijo->ijo_timeout,
-                                  ijo->ijo_last_op);
-        if (rc) {
-            goto err;
-        }
-    }
-
-    if (ijo->ijo_op == I2C_OP_READ) {
-        /* I2C master read */
-        rc = hal_i2c_master_read(ii_num, &ijo->ijo_pdata, ijo->ijo_timeout,
-                                 ijo->ijo_last_op);
-        if (rc) {
-            goto err;
-        }
-    }
-
-    return 0;
-err:
-    return rc;
-}
-
-/**
- * Lock job op list
- *
- * @param The i2c job to lock the job op list for
- *
- * @return 0 on success, non-zero on failure
- */
-static int
-i2c_job_op_lock(struct i2c_job *ij)
-{
-    int rc;
-
-    rc = os_mutex_pend(&ij->ij_job_op_lock, OS_TIMEOUT_NEVER);
-    if (rc == 0 || rc == OS_NOT_STARTED) {
-        return 0;
-    }
-
-    return rc;
-}
-
-/**
- * Unlock the job op list
- *
- * @param The i2c job to unlock the job list for
- *
- * @return 0 on success, non-zero on failure
+ * Startup event callback for getting the current task
  */
 static void
-i2c_job_op_unlock(struct i2c_job *ij)
-{
-    (void) os_mutex_release(&ij->ij_job_op_lock);
-}
-
-/*
- * Remove the job op from the job op list
- */
-static int
-i2c_remove_job_op(struct i2c_job *ij,
-                  struct i2c_job_op *ijo)
-{
-    int rc;
-
-    rc = i2c_job_op_lock(ij);
-    if (rc) {
-        goto err;
-    }
-
-    SLIST_REMOVE(&ij->ij_job_op_list, ijo, i2c_job_op, ijo_next);
-
-    /* Free the databuf if the buffer length is greater than the buffer
-     * we have
-     */
-    if (ijo->ijo_pdata.len > MYNEWT_VAL(I2C_FIXBUF_LEN)) {
-        free(ijo->ijo_varbuf);
-    }
-
-    /* Free the job op back to the pool */
-    rc = i2c_job_op_free(ijo);
-
-    i2c_job_op_unlock(ij);
-
-err:
-    return rc;
-}
-
-/*
- * Process a job by going through each job op in the given job and remove the
- * job op after finishing
- */
-static int
-i2c_process_job(struct i2c_job *ij, uint8_t ii_num)
-{
-    int rc;
-    struct i2c_job_op *cursor;
-    i2c_user_arg_t *iua;
-
-    rc = i2c_job_op_lock(ij);
-    if (rc) {
-        goto err;
-    }
-
-    cursor = NULL;
-    SLIST_FOREACH(cursor, &ij->ij_job_op_list, ijo_next) {
-        rc = i2c_process_job_op(cursor, ii_num);
-        if (rc == SYS_EAGAIN) {
-            /* Delayed job */
-            i2c_job_op_unlock(ij);
-            goto err;
-        }
-
-        if (rc) {
-            break;
-        }
-    }
-
-    if (ij->ij_user_func) {
-        iua = ij->ij_user_arg;
-        iua->iua_pdata->buffer = cursor->ijo_varbuf;
-        rc = ij->ij_user_func(ij->ij_user_arg);
-        if (rc) {
-            i2c_job_op_unlock(ij);
-            goto err;
-        }
-    }
-
-    i2c_job_op_unlock(ij);
-
-    cursor = NULL;
-    SLIST_FOREACH(cursor, &ij->ij_job_op_list, ijo_next) {
-        rc = i2c_remove_job_op(ij, cursor);
-        if (rc) {
-            goto err;
-        }
-    }
-
-    return 0;
-err:
-    return rc;
-}
-
-/*
- * Event callback for getting a job and processing it
- */
-static void
-i2cmgr_ev_cb(struct os_event *ev)
+i2cmgr_startup_ev_cb(struct os_event *ev)
 {
     struct i2c_itf *ii;
-    struct i2c_job *ij;
-    int rc;
 
-    SLIST_FOREACH(ii, &i2cmgr.i_itf_list, ii_next) {
-
-        if (ii) {
-            ij = i2c_get_high_prio_job(ii);
-            if (!ij) {
-                return;
-            }
-
-            rc = i2c_process_job(ij, ii->ii_num);
-            if (rc) {
-                return;
-            }
-
-            rc = i2c_remove_job(ii->ii_num, ij);
-            if (rc) {
-                /* XXX Log failure */
-                return;
-            }
-        }
-    }
-}
-
-/*
- * Insert the job op into the job op list
- */
-static int
-i2c_insert_job_op(struct i2c_job *ij,
-                  struct i2c_job_op *ijo)
-{
-    struct i2c_job_op *cursor, *prev;
-    int rc;
-
-    prev = NULL;
-
-    rc = i2c_job_op_lock(ij);
-    if (rc) {
-        goto err;
-    }
-
-    SLIST_FOREACH(cursor, &ij->ij_job_op_list, ijo_next) {
-        prev = cursor;
-    }
-
-    if (prev == NULL) {
-        SLIST_INSERT_HEAD(&ij->ij_job_op_list, ijo, ijo_next);
-    } else {
-        SLIST_INSERT_AFTER(cursor, ijo, ijo_next);
-    }
-
-    i2c_job_op_unlock(ij);
-
-    return 0;
-err:
-    return rc;
-}
-
-/*
- * I2C manager task handler
- */
-static void
-i2cmgr_handler(void *arg)
-{
-    struct os_task *t;
-
-    while (1) {
-        t = os_sched_get_current_task();
-        assert(t->t_func == i2cmgr_handler);
-
-        os_eventq_run(&i2cmgr.i_evq);
-    }
+    ii = (struct i2c_itf *)ev->ev_arg;
+    ii->ii_task = os_sched_get_current_task();
 }
 
 /*
@@ -585,63 +258,133 @@ i2cmgr_init(void)
 #if MYNEWT_VAL(I2C_0)
     i2cmgr_insert(&i2c_itf0, &prev);
     i2c_itf0.ii_num = 0;
-    rc = os_mutex_init(&i2c_itf0.ii_jobq_lock);
     SYSINIT_PANIC_ASSERT(rc == 0);
 #endif
 #if MYNEWT_VAL(I2C_1)
     i2cmgr_insert(&i2c_itf1, &prev);
     i2c_itf1.ii_num = 1;
-    rc = os_mutex_init(&i2c_itf1.ii_jobq_lock);
     SYSINIT_PANIC_ASSERT(rc == 0);
 #endif
 #if MYNEWT_VAL(I2C_2)
     i2cmgr_insert(&i2c_itf2, &prev);
     i2c_itf2.ii_num = 2;
-    rc = os_mutex_init(&i2c_itf2.ii_jobq_lock);
     SYSINIT_PANIC_ASSERT(rc == 0);
 #endif
 #if MYNEWT_VAL(I2C_3)
     i2cmgr_insert(&i2c_itf3, &prev);
     i2c_itf3.ii_num = 3;
-    rc = os_mutex_init(&i2c_itf3.ii_jobq_lock);
     SYSINIT_PANIC_ASSERT(rc == 0);
 #endif
 
-    /* allocate I2C manager stack */
-    i2cmgr_stack = malloc(sizeof(os_stack_t) * I2CMGR_STACK_SIZE);
-    assert(i2cmgr_stack);
 
-    /* Initialize eventq for i2cmgr task */
-    os_eventq_init(&i2cmgr.i_evq);
+#ifdef MYNEWT_VAL_I2CMGR_I2C_0_EVQ
+    i2cmgr_evq_set(&i2c_itf0, MYNEWT_VAL(I2CMGR_I2C_0_EVQ));
+#else
+    i2cmgr_evq_set(&i2c_itf0, os_eventq_dflt_get());
+#endif
 
-    os_task_init(&i2cmgr_task, "i2cmgr", i2cmgr_handler, NULL,
-                 I2CMGR_TASK_PRIO, OS_WAIT_FOREVER, i2cmgr_stack,
-                 I2CMGR_STACK_SIZE);
+#ifdef MYNEWT_VAL_I2CMGR_I2C_1_EVQ
+    i2cmgr_evq_set(&i2c_itf1, MYNEWT_VAL(I2CMGR_I2C_1_EVQ));
+#else
+    i2cmgr_evq_set(&i2c_itf1, os_eventq_dflt_get());
+#endif
 
+#ifdef MYNEWT_VAL_I2CMGR_I2C_2_EVQ
+    i2cmgr_evq_set(&i2c_itf2, MYNEWT_VAL(I2CMGR_I2C_2_EVQ));
+#else
+    i2cmgr_evq_set(&i2c_itf2, os_eventq_dflt_get());
+#endif
 
-    os_mempool_init(&i2c_job_pool,
-                    MYNEWT_VAL(I2C_JOB_MPOOL_MAX_NUM),
-                    sizeof (struct i2c_job),
-                    i2c_job_mem,
-                    "i2c_job_pool");
+#ifdef MYNEWT_VAL_I2CMGR_I2C_3_EVQ
+    i2cmgr_evq_set(&i2c_itf3, MYNEWT_VAL(I2CMGR_I2C_3_EVQ));
+#else
+    i2cmgr_evq_set(&i2c_itf3, os_eventq_dflt_get());
+#endif
 
-    os_mempool_init(&i2c_job_op_pool,
-                    MYNEWT_VAL(I2C_JOB_OP_MPOOL_MAX_NUM),
-                    sizeof (struct i2c_job_op),
-                    i2c_job_op_mem,
-                    "i2c_job_op_pool");
+#ifdef MYNEWT_VAL_I2CMGR_I2C_4_EVQ
+    i2cmgr_evq_set(&i2c_itf4, MYNEWT_VAL(I2CMGR_I2C_4_EVQ));
+#else
+    i2cmgr_evq_set(&i2c_itf4, os_eventq_dflt_get());
+#endif
+
+}
+
+/* Non-blocking I2C job */
+int
+i2cmgr_job_noblock(uint8_t i2c_num, struct i2c_job *job, uint32_t delay_us,
+                   i2cmgr_data_func_t job_cb, void *job_arg)
+{
+    struct i2c_itf *ii;
+
+    if (!job_cb || !job_arg) {
+        return SYS_EINVAL;
+    }
+
+    job->ij_cb  = job_cb;
+    job->ij_arg = job_arg;
+
+    if (delay_us) {
+        os_cputime_timer_relative(job->ij_timer, delay_us);
+    } else {
+        i2cmgr_put_evt(job);
+    }
+
+    return SYS_EOK;
+}
+
+/* Blocking I2C job */
+int
+i2cmgr_job_exec(uint8_t i2c_num, struct i2c_job *job, uint32_t delay_us,
+                i2cmgr_data_func_t job_cb, void *job_arg)
+{
+    struct i2c_itf *ii;
+    int rc;
+
+    if (!job_cb || !job_arg) {
+        return SYS_EINVAL;
+    }
+
+    job->ij_cb  = job_cb;
+    job->ij_arg = job_arg;
+
+    rc = i2c_job_lock(ij);
+    if (rc) {
+        return;
+    }
+
+    if (delay_us) {
+        os_cputime_timer_relative(job->ij_timer, delay_us);
+    } else {
+        i2cmgr_put_evt(job);
+    }
+
+    return SYS_EOK;
+>>>>>>> Stashed changes
 }
 
 /**
- * Puts an I2C event on the i2cmgr evq
+ * Get the current eventq, the system is misconfigured if there is still
+ * no parent eventq.
  *
- * @param I2C mgr event context
+ * @return eventq ptr
  */
-void
-i2cmgr_put_evt(void *arg)
+struct os_eventq *
+i2cmgr_evq_get(uint8_t i2c_num)
 {
-    i2cmgr_evt.ev_arg = arg;
-    os_eventq_put(&i2cmgr.i_evq, &i2cmgr_evt);
+    struct i2c_itf *ii;
+
+    ii = i2c_get_itf_bynum(i2c_num);
+    if (!ii) {
+        return NULL;
+    }
+
+    return (ii->ii_evq);
+}
+
+static void
+i2cmgr_evq_set(struct i2c_itf *ii, struct os_eventq *evq)
+{
+    ii->ii_evq = evq;
 }
 
 /*
