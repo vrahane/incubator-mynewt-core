@@ -28,7 +28,8 @@
  *
  * @param argument
  *
- * @return 0 on success, non-zero error code on failure.
+ * @return 0 on success, non-zero on failure
+ *
  */
 typedef int (*i2cmgr_data_func_t)(void *arg);
 
@@ -39,7 +40,7 @@ struct i2c_itf {
     /* Eventq ptr per interface */
     struct os_eventq *ii_evq;
     /* startup event for the interface */
-    struct os_event ii_ev;
+    struct os_event ii_startup_ev;
     /* Task from which the I2C interface is getting accessed */
     struct os_task *ii_task;
 
@@ -48,12 +49,18 @@ struct i2c_itf {
 
 /* I2C job */
 struct i2c_job {
+    /* I2C interface number */
+    uint8_t ij_itf_num;
     /* timer per job */
     struct hal_timer ij_timer;
     /* event for the job */
     struct os_event ij_ev;
     /* Job semaphore */
     struct os_sem ij_sem;
+    /* I2C job data function */
+    i2cmgr_data_func_t ij_cb;
+    /* I2C job arg */
+    void *ij_arg;
 };
 
 /**
