@@ -37,6 +37,8 @@
 #include "log/log.h"
 #include "stats/stats.h"
 
+#define I2C_NESTED_JOB    0x1
+
 static uint16_t cnv_time[6] = {
     MS5837_CNV_TIME_OSR_256,
     MS5837_CNV_TIME_OSR_512,
@@ -82,22 +84,27 @@ static const struct sensor_driver g_ms5837_sensor_driver = {
 };
 
 struct i2c_arg {
-    struct sensor *ira_sensor;
-    struct hal_i2c_master_data *ira_pdata;
+    struct sensor *ia_sensor;
+    struct hal_i2c_master_data *ia_pdata;
+    uint8_t ia_i2c_num;
+    uint32_t ia_delay;
 };
 
 struct i2c_read_ctx {
-    sensor_data_func_t ira_data_func;
-    void *ira_data_arg;
-    struct i2c_arg *ira;
+    sensor_data_func_t irc_data_func;
+    void *irc_data_arg;
+    struct i2c_arg *irc_ia;
+    uint8_t irc_cmd;
 };
 
 struct i2c_write_ctx {
-    struct i2c_arg *ira;
+    struct i2c_arg *iwc_ia;
 };
 
 struct i2c_job read_job;
 struct i2c_job write_job;
+struct i2c_read_ctx irc;
+struct i2c_write_ctx iwc;
 
 /**
  * Expects to be called back through os_dev_create().
@@ -372,95 +379,33 @@ static int
 ms5837_i2c_readlen(void *arg)
 {
     int rc;
-    int idx;
-    uint8_t *data;
-    float pressure;
-    float temperature;
-    struct ms5837 *ms5837;
-    i2c_user_arg_t *ra = arg;
-    uint16_t coeff[MS5837_NUMBER_COEFFS];
-    union {
-        struct sensor_temp_data std;
-        struct sensor_press_data spd;
-    } databuf;
+    struct i2c_read_ctx *irc;
 
-    if (!ra->iua_rc) {
-        console_printf("ms5827 read done\n");
+    irc = (struct i2c_read_ctx *)arg;
+
+    if (irc->irc_cmd != I2C_NESTED_JOB) {
+         rc = hal_i2c_master_write(itf->si_num, &irc->irc_ia->ia_pdata,
+                                   OS_TICKS_PER_SEC / 10, 0, 1);
+        if (!rc) {
+            console_printf("ms5827 register write done\n");
+        } else {
+            console_printf("ms5837 read failed\n");
+            MS5837_ERR("I2C manager command read failed at address 0x%02X",
+                       irc->irc_ia->ia_pdata->address);
+            STATS_INC(g_ms5837stats, read_errors);
+        }
+        irc->irc_cmd = I2C_NESTED_JOB;
     } else {
-        console_printf("ms5837 read failed\n");
-        MS5837_ERR("I2C manager command read failed at address 0x%02X at job"
-                   "0x%08x for I2C number %u\n", ra->iua_pdata->address,
-                    ra->iua_ij, ra->iua_itf_num);
-        STATS_INC(g_ms5837stats, read_errors);
+        console_printf("ms5827 read data\n");
+        rc = i2cmgr_job_noblock(irc->irc_ia->ia_i2c_num, &read_job,
+                                irc->irc_ia->ia_delay,
+                                ms5837_i2c_readlen, (void *)irc);
+        if (rc) {
+            goto err;
+        }
     }
 
-    data = wa->iua_pdata->buffer;
-    ira = (struct iua_read_arg *)ra->arg;
-    ms5837 = (struct ms5837 *)SENSOR_GET_DEVICE(ira->ira_sensor);
-
-
-    switch(wa->iua_payload_type) {
-        case MS5837_RAW_DATA:
-            console_printf("ms5827 raw data \n");
-        case MS5837_TEMP_DATA:
-            console_printf("ms5827 temp data \n");
-            *data = ((uint32_t)data[0] << 16) | ((uint32_t)data[1] << 8) | data[2];
-            if (!temperature) {
-                temperature = ms5837_compensate_temperature(
-                    ms5837->pdd.eeprom_coeff, rawtemp, NULL, NULL);
-
-                databuf.std.std_temp = temperature;
-                databuf.std.std_temp_is_valid = 1;
-
-                /* Call data function */
-                rc = ira->ira_data_func(ira->ira_sensor, ira->ira_data_arg,
-                                        &databuf.std,
-                                        SENSOR_TYPE_AMBIENT_TEMPERATURE);
-                if (rc) {
-                    goto err;
-                }
-            }
-            break;
-        case MS5837_PRESS_DATA:
-            console_printf("ms5827 press data \n");
-            *data = ((uint32_t)data[0] << 16) | ((uint32_t)data[1] << 8) | data[2];
-            temperature = ms5837_compensate_temperature(
-                ms5837->pdd.eeprom_coeff, rawtemp, &comptemp, &deltat);
-
-            pressure = ms5837_compensate_pressure(ms5837->pdd.eeprom_coeff,
-                comptemp, rawpress, deltat);
-
-            databuf.spd.spd_press = pressure;
-            databuf.spd.spd_press_is_valid = 1;
-
-            /* Call data function */
-            rc = ira->ira_data_func(ira->ira_sensor, ira->ira_data_arg,
-                                    &databuf.spd, SENSOR_TYPE_PRESSURE);
-            if (rc) {
-                goto err;
-            }
-            break;
-        case MS5837_EEPROM:
-            console_printf("ms5827 EEPROM data \n");
-            for(idx = 0; idx < MS5837_NUMBER_COEFFS; idx++) {
-                data[idx] = (((data[idx] & 0xFF00) >> 8)|
-                            ((data[idx] & 0x00FF) << 8));
-            }
-            rc = ms5837_crc_check(data, (data[MS5837_IDX_CRC] & 0xF000) >> 12);
-            if (rc) {
-                rc = SYS_EINVAL;
-                // MS5837_ERR("Failure in CRC, 0x%02X\n", payload[idx]);
-                STATS_INC(g_ms5837stats, eeprom_crc_errors);
-                goto err;
-            }
-
-            memcpy(coeff, data, sizeof(data));
-            break;
-        default:
-            break;
-    }
-
-    return ra->iua_rc;
+    return rc;
 }
 
 /**
@@ -540,22 +485,17 @@ ms5837_readlen(struct sensor_itf *itf, uint8_t addr, uint8_t *buffer,
     /* Clear the supplied buffer */
     memset(buffer, 0, len);
 
-    /* Command write */
 #if MYNEWT_VAL(USE_I2CMGR)
-    struct i2c_job *ij;
-
-    ij = i2c_create_job(itf->si_num, 0, ms5837_i2c_readlen_done,
-                        (void *)&read_arg);
-    if (!ij) {
-        rc = SYS_ENOMEM;
-        goto err;
-    }
-
-    rc = i2c_master_write(ij, &data_struct, OS_TICKS_PER_SEC / 10, 0, 1);
+    rc = i2cmgr_job_init(&read_job);
     if (rc) {
         goto err;
     }
 
+    rc = i2cmgr_job_noblock(itf->si_num, &read_job, delay, ms5837_i2c_readlen,
+                            (void *)&irc);
+    if (rc) {
+        goto err;
+    }
 #else
     /* delay conversion depending on resolution */
     os_cputime_delay_usecs(delay);
@@ -573,16 +513,6 @@ ms5837_readlen(struct sensor_itf *itf, uint8_t addr, uint8_t *buffer,
     memset(payload, 0, sizeof(payload));
     data_struct.len = len;
 
-#if MYNEWT_VAL(USE_I2CMGR)
-    rc = i2c_master_read(ij, &data_struct, OS_TICKS_PER_SEC / 10, delay, 1);
-    if (rc) {
-        goto err;
-    }
-
-    rc = i2c_insert_job(itf->si_num, ij);
-    if (rc) {
-        goto err;
-    }
 #else
     rc = hal_i2c_master_read(itf->si_num, &data_struct, OS_TICKS_PER_SEC / 10, 0, 1);
     if (rc) {
