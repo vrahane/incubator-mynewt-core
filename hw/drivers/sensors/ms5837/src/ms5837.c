@@ -85,7 +85,7 @@ static const struct sensor_driver g_ms5837_sensor_driver = {
 
 struct i2c_arg {
     struct sensor *ia_sensor;
-    struct hal_i2c_master_data *ia_pdata;
+    struct sensor_itf *ia_itf;
     uint8_t ia_i2c_num;
     uint32_t ia_delay;
 };
@@ -95,6 +95,7 @@ struct i2c_read_ctx {
     void *irc_data_arg;
     struct i2c_arg *irc_ia;
     uint8_t irc_cmd;
+    uint8_t *irc_buf;
 };
 
 struct i2c_write_ctx {
@@ -352,12 +353,22 @@ static int
 ms5837_i2c_writelen(void *arg)
 {
     int rc;
-    struct hal_i2c_master_data *pdata;
+    struct i2c_write_ctx *iwc;
 
-    rc = hal_i2c_master_write(itf->si_num, pdata, OS_TICKS_PER_SEC / 10, 1);
+    iwc = (struct i2c_write_ctx *)arg;
+
+    struct hal_i2c_master_data data_struct = {
+        .address = iwc->iwc_ia->ia_itf.si_addr,
+        .len = 1,
+        .buffer = &addr
+    };
+
+    rc = hal_i2c_master_write(iwc->iwc_ia->ia_i2c_num, &data_struct,
+                              OS_TICKS_PER_SEC / 10, 1);
     if (rc) {
-        MS5837_ERR("I2C write command write failed at address 0x%02X\n",
-                   pdata.address);
+        MS5837_ERR("I2C write command write failed at address 0x%02X "
+                   "for I2C number %u\n", data_struct.address,
+                   iwc->iwc_ia->ia_i2c_num);
         STATS_INC(g_ms5837stats, write_errors);
         goto err;
     }
@@ -367,8 +378,8 @@ ms5837_i2c_writelen(void *arg)
     } else {
         console_printf("ms5837 write failed\n");
         MS5837_ERR("I2C manager command write failed at address 0x%02X "
-                   "for I2C number %u\n", pdata->address,
-                   wa->iua_itf_num);
+                   "for I2C number %u\n", data_struct.address,
+                   iwc->iwc_ia->ia_i2c_num);
         STATS_INC(g_ms5837stats, write_errors);
     }
 
@@ -379,30 +390,55 @@ static int
 ms5837_i2c_readlen(void *arg)
 {
     int rc;
-    struct i2c_read_ctx *irc;
+    struct i2c_read_ctx *irc = (struct i2c_read_ctx *)arg;
 
-    irc = (struct i2c_read_ctx *)arg;
+    uint8_t payload[3] = {irc->irc_ia->ia_itf.si_addr, 0, 0};
+
+    struct hal_i2c_master_data data_struct = {
+        .address = irc->irc_ia->ia_itf.si_addr,
+        .len = 1,
+        .buffer = payload
+    };
+
+    /* Clear the supplied buffer */
+    memset(irc->irc_buf, 0, len);
+
 
     if (irc->irc_cmd != I2C_NESTED_JOB) {
-         rc = hal_i2c_master_write(itf->si_num, &irc->irc_ia->ia_pdata,
-                                   OS_TICKS_PER_SEC / 10, 0, 1);
-        if (!rc) {
-            console_printf("ms5827 register write done\n");
-        } else {
+         rc = hal_i2c_master_write(irc->irc_ia->ia_i2c_num, &data_struct,
+                                   OS_TICKS_PER_SEC / 10, 1);
+        if (rc) {
             console_printf("ms5837 read failed\n");
-            MS5837_ERR("I2C manager command read failed at address 0x%02X",
-                       irc->irc_ia->ia_pdata->address);
+            MS5837_ERR("I2C manager command read failed at address 0x%02X "
+                       "for I2C number %u\n", data_struct.address,
+                       irc->irc_ia->ia_i2c_num);
             STATS_INC(g_ms5837stats, read_errors);
         }
+
         irc->irc_cmd = I2C_NESTED_JOB;
-    } else {
-        console_printf("ms5827 read data\n");
+
         rc = i2cmgr_job_noblock(irc->irc_ia->ia_i2c_num, &read_job,
                                 irc->irc_ia->ia_delay,
                                 ms5837_i2c_readlen, (void *)irc);
         if (rc) {
             goto err;
         }
+    } else {
+        /* Read len bytes back */
+        memset(payload, 0, sizeof(payload));
+        data_struct.len = len;
+
+        rc = hal_i2c_master_read(irc->irc_ia->ia_i2c_num, &data_struct,
+                                 OS_TICKS_PER_SEC / 10, 0, 1);
+        if (rc) {
+            MS5837_ERR("Failed to read from 0x%02X:0x%02X\n",
+                       data_struct.address, irc->irc_ia->ia_itf.si_addr);
+            STATS_INC(g_ms5837stats, read_errors);
+            goto err;
+        }
+
+        /* Copy the I2C results into the supplied buffer */
+        memcpy(irc->irc_buf, payload, len);
     }
 
     return rc;
@@ -425,33 +461,16 @@ ms5837_writelen(struct sensor_itf *itf, uint8_t addr, uint8_t *buffer,
 {
     int rc;
 
-    struct hal_i2c_master_data data_struct = {
-        .address = itf->si_addr,
-        .len = 1,
-        .buffer = &addr
-    };
-
-    /* Register write */
-#if MYNEWT_VAL(USE_I2CMGR)
     rc = i2cmgr_job_init(&write_job);
     if (rc) {
         goto err;
     }
 
-    rc = i2cmgr_job_noblock(itf->si_num, &write_job, 0, ms5837_i2c_writelen,
-                            (void *)&write_arg);
+    rc = i2cmgr_job_noblock(itf->si_num, &write_job, delay, ms5837_i2c_writelen,
+                            (void *)&iwc);
     if (rc) {
         goto err;
     }
-#else
-    rc = hal_i2c_master_write(itf->si_num, &data_struct, OS_TICKS_PER_SEC / 10, 0, 1);
-    if (rc) {
-        MS5837_ERR("I2C write command write failed at address 0x%02X\n",
-                   data_struct.address);
-        STATS_INC(g_ms5837stats, write_errors);
-        goto err;
-    }
-#endif
 
     return 0;
 err:
@@ -474,18 +493,7 @@ ms5837_readlen(struct sensor_itf *itf, uint8_t addr, uint8_t *buffer,
                uint8_t len, uint32_t delay)
 {
     int rc;
-    uint8_t payload[3] = {addr, 0, 0};
 
-    struct hal_i2c_master_data data_struct = {
-        .address = itf->si_addr,
-        .len = 1,
-        .buffer = payload
-    };
-
-    /* Clear the supplied buffer */
-    memset(buffer, 0, len);
-
-#if MYNEWT_VAL(USE_I2CMGR)
     rc = i2cmgr_job_init(&read_job);
     if (rc) {
         goto err;
@@ -496,34 +504,6 @@ ms5837_readlen(struct sensor_itf *itf, uint8_t addr, uint8_t *buffer,
     if (rc) {
         goto err;
     }
-#else
-    /* delay conversion depending on resolution */
-    os_cputime_delay_usecs(delay);
-
-    rc = hal_i2c_master_write(itf->si_num, &data_struct, OS_TICKS_PER_SEC / 10, 0, 1);
-    if (rc) {
-        MS5837_ERR("I2C read command write failed at address 0x%02X\n",
-                   data_struct.address);
-        STATS_INC(g_ms5837stats, write_errors);
-        goto err;
-    }
-#endif
-
-    /* Read len bytes back */
-    memset(payload, 0, sizeof(payload));
-    data_struct.len = len;
-
-#else
-    rc = hal_i2c_master_read(itf->si_num, &data_struct, OS_TICKS_PER_SEC / 10, 0, 1);
-    if (rc) {
-        MS5837_ERR("Failed to read from 0x%02X:0x%02X\n", data_struct.address, addr);
-        STATS_INC(g_ms5837stats, read_errors);
-        goto err;
-    }
-
-    /* Copy the I2C results into the supplied buffer */
-    memcpy(buffer, payload, len);
-#endif
 
     return 0;
 err:
