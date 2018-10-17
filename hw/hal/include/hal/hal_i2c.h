@@ -79,17 +79,14 @@ extern "C" {
 /** Slave responded to data byte with NACK. */
 #define HAL_I2C_ERR_DATA_NACK           5
 
-/** I2C controller hardware settings */
-struct hal_i2c_hw_settings {
-    int pin_scl;
-    int pin_sda;
-};
+/** Overrun error */
+#define HAL_I2C_ERR_OVERRUN             6
 
-/** I2C configuration */
-struct hal_i2c_settings {
-    /** Frequency in kHz */
-    uint32_t frequency;
-};
+/** I2C bus in suspended state, but last op was 0 */
+#define HAL_I2C_ERR_SUSPEND             7
+
+/** I2C bus in stopped state, but last op was 1   */
+#define HAL_I2C_ERR_STOP                8
 
 /**
  * When sending a packet, use this structure to pass the arguments.
