@@ -55,6 +55,7 @@ static uint16_t cnv_time[6] = {
 STATS_SECT_START(ms5840_stat_section)
     STATS_SECT_ENTRY(read_errors)
     STATS_SECT_ENTRY(write_errors)
+    STATS_SECT_ENTRY(write_read_errors)
     STATS_SECT_ENTRY(eeprom_crc_errors)
 STATS_SECT_END
 
@@ -62,6 +63,7 @@ STATS_SECT_END
 STATS_NAME_START(ms5840_stat_section)
     STATS_NAME(ms5840_stat_section, read_errors)
     STATS_NAME(ms5840_stat_section, write_errors)
+    STATS_NAME(ms5840_stat_section, write_read_errors)
     STATS_NAME(ms5840_stat_section, eeprom_crc_errors)
 STATS_NAME_END(ms5840_stat_section)
 
@@ -379,12 +381,14 @@ ms5840_readlen(struct sensor_itf *itf, uint8_t addr, uint8_t *buffer,
 #if MYNEWT_VAL(BUS_DRIVER_PRESENT)
     rc = bus_node_simple_write_read_transact(itf->si_dev, &addr, 1, buffer, len);
 #else
-    uint8_t payload[3] = {addr, 0, 0};
+    uint8_t payload[3] = {0};
 
     struct hal_i2c_master_data data_struct = {
         .address = itf->si_addr,
-        .len = 1,
-        .buffer = payload
+        .len1 = 1,
+        .buffer1 = &addr,
+        .len2 = len,
+        .buffer2 = payload,
     };
 
     /* Clear the supplied buffer */
@@ -394,7 +398,7 @@ ms5840_readlen(struct sensor_itf *itf, uint8_t addr, uint8_t *buffer,
     if (rc) {
         return rc;
     }
-
+#if 0
     /* Command write */
     rc = i2cn_master_write(itf->si_num, &data_struct, MYNEWT_VAL(MS5840_I2C_TIMEOUT_TICKS), 1,
                            MYNEWT_VAL(MS5840_I2C_RETRIES));
@@ -414,6 +418,15 @@ ms5840_readlen(struct sensor_itf *itf, uint8_t addr, uint8_t *buffer,
         MS5840_LOG(ERROR, "Failed to read from 0x%02X:0x%02X\n",
                    data_struct.address, addr);
         STATS_INC(g_ms5840stats, read_errors);
+        goto err;
+    }
+#endif
+    rc = i2cn_master_write_read(itf->si_num, &data_struct, MYNEWT_VAL(MS5840_I2C_TIMEOUT_TICKS) * (len + 1), 1,
+                                MYNEWT_VAL(MS5840_I2C_RETRIES));
+    if (rc) {
+        MS5840_LOG(ERROR, "Failed to write-read from 0x%02X:0x%02X\n",
+                   data_struct.address, addr);
+        STATS_INC(g_ms5840stats, write_read_errors);
         goto err;
     }
 
