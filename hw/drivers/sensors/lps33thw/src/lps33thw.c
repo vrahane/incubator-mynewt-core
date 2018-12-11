@@ -338,6 +338,7 @@ err:
 
     return rc;
 }
+#endif
 
 /**
  * Read bytes from the specified register using i2c interface
