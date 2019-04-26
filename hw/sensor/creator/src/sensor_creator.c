@@ -142,7 +142,7 @@ static struct bmp280 bmp280;
 #endif
 
 #if MYNEWT_VAL(BMA253_OFB)
-static struct bma253 bma253;
+//static struct bma253 bma253;
 #endif
 
 #if MYNEWT_VAL(BMA2XX_OFB)
@@ -292,10 +292,14 @@ static struct sensor_itf i2c_0_itf_ms40 = {
 
 
 #if MYNEWT_VAL(I2C_0) && MYNEWT_VAL(BMA253_OFB)
+struct bus_i2c_node i2c_node;
 static struct sensor_itf i2c_0_itf_lis = {
+#if !MYNEWT_VAL(BUS_DRIVER_PRESENT)
     .si_type = SENSOR_ITF_I2C,
     .si_num  = 0,
     .si_addr = 0x18,
+#endif
+    .si_dev = (struct os_dev *)&i2c_node,
     .si_ints = {
         { 25, MYNEWT_VAL(BMA253_INT_PIN_DEVICE),    //zg
             MYNEWT_VAL(BMA253_INT_CFG_ACTIVE)}, //zg
@@ -782,12 +786,12 @@ config_bno055_sensor(void)
 int
 config_bma253_sensor(void)
 {
-    struct os_dev * dev;
     struct bma253_cfg cfg = {0};
     int rc;
-
-    dev = os_dev_open("bma253_0", OS_TIMEOUT_NEVER, NULL);
-    assert(dev != NULL);
+    struct sensor *sensor = NULL;
+    
+    sensor = sensor_mgr_find_next_bydevname("bma253_0", NULL);
+    assert(sensor);
 
     cfg.low_g_delay_ms = BMA253_LOW_G_DELAY_MS_DEFAULT;
     cfg.high_g_delay_ms = BMA253_HIGH_G_DELAY_MS_DEFAULT;
@@ -807,10 +811,10 @@ config_bma253_sensor(void)
     cfg.sensor_mask = SENSOR_TYPE_ACCELEROMETER;
     cfg.read_mode = BMA253_READ_M_POLL;
 
-    rc = bma253_config((struct bma253 *)dev, &cfg);
+    rc = sensor->s_funcs->sd_set_config(sensor, &cfg);
     assert(rc == 0);
 
-    os_dev_close(dev);
+    os_dev_close((struct os_dev *)sensor);
 
     return 0;
 }
@@ -1305,8 +1309,16 @@ sensor_dev_create(void)
 #endif
 
 #if MYNEWT_VAL(BMA253_OFB)
-    rc = os_dev_create((struct os_dev *)&bma253, "bma253_0",
-      OS_DEV_INIT_PRIMARY, 0, bma253_init, &i2c_0_itf_lis);
+    static const struct bus_i2c_node_cfg bma253_i2c_cfg = {
+        .node_cfg = {
+            .bus_name = "i2c0",
+        },
+        .addr = 0x18,
+        .freq = 100,
+        };
+
+    rc = bma253_create_i2c_sensor_dev(&i2c_node, "bma253_0",
+         &bma253_i2c_cfg, &i2c_0_itf_lis);
     assert(rc == 0);
 
     rc = config_bma253_sensor();

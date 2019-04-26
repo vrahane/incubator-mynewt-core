@@ -26,12 +26,13 @@
 #include "bma253_priv.h"
 #include "hal/hal_gpio.h"
 #if MYNEWT_VAL(BUS_DRIVER_PRESENT)
-#include "bus/bus.h"
+#include "bus/drivers/i2c_common.h"
+#include "bus/drivers/spi_common.h"
 #else
+#include "hal/hal_spi.h"
 #include "hal/hal_i2c.h"
 #include "i2cn/i2cn.h"
 #endif
-
 #if MYNEWT_VAL(BMA253_LOG)
 #include "modlog/modlog.h"
 #endif
@@ -313,58 +314,6 @@ done:
 
     sensor_itf_unlock(itf);
 #endif
-
-    delay_msec(1);    //zg
-
-    return rc;
-}
-
-static int
-set_register16(struct bma253 * bma253,
-             uint16_t addr,
-             uint16_t data)
-{
-    struct sensor_itf * itf;
-    uint8_t tuple[4];
-    struct hal_i2c_master_data oper;
-    int rc;
-
-    itf = SENSOR_GET_ITF(&bma253->sensor);
-
-    rc = sensor_itf_lock(itf, MYNEWT_VAL(BMA253_ITF_LOCK_TMO));
-    if (rc) {
-        return rc;
-    }
-
-    tuple[0] = (addr >> 8);
-    tuple[1] = (addr & 0xff);
-    tuple[2] = (data >> 8);
-    tuple[3] = (data  & 0xff);
-
-    oper.address = itf->si_addr;
-    oper.len     = 4;
-    oper.buffer  = tuple;
-
-    //rc = i2cn_master_write(itf->si_num, &oper, OS_TICKS_PER_SEC / 10, 1,
-    rc = i2cn_master_write(itf->si_num, &oper, 3, 1,    //zg
-                           MYNEWT_VAL(BMA253_I2C_RETRIES));
-    if (rc != 0) {
-        BMA253_LOG(ERROR, "I2C write failed at address 0x%02X single byte\n",
-                   addr);
-    }
-
-    BMA253_LOG(ERROR, "bus_write@0x%02X:%02X\n", addr, data);
-
-    switch (bma253->power) {
-    case BMA253_POWER_MODE_SUSPEND:
-    case BMA253_POWER_MODE_LPM_1:
-        delay_msec(1);
-        break;
-    default:
-        break;
-    }
-
-    sensor_itf_unlock(itf);
 
     delay_msec(1);    //zg
 
@@ -4750,9 +4699,6 @@ sensor_driver_set_notification(struct sensor * sensor,
 
     int_enable.slope_z_int_enable   = 0;    //zg
     rc = bma253_set_int_enable(bma253, &int_enable);
-
-
-    set_register16(bma253, 0x1122, 0x3344);
 
 done:
     if (rc != 0) {
