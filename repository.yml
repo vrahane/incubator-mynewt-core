@@ -94,3 +94,10 @@ repo.deps:
         repo: mcuboot
         vers:
             master: 0-dev
+    
+    apache-mynewt-mcumgr:
+        type: github
+        user: apache
+        repo: mynewt-mcumgr
+        vers:
+            master: 0-dev
