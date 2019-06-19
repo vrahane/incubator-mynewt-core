@@ -108,7 +108,7 @@ log_cbmem_append_mbuf_body(struct log *log, const struct log_entry_hdr *hdr,
 }
 
 static int
-log_cbmem_read(struct log *log, void *dptr, void *buf, uint16_t offset,
+log_cbmem_read(struct log *log, const void *dptr, void *buf, uint16_t offset,
         uint16_t len)
 {
     struct cbmem *cbmem;
