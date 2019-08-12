@@ -49,3 +49,8 @@ syscfg.defs:
         description: >
             Sysinit stage for reboot functionality.
         value: 200
+
+    LOG_SOFT_RESET:
+        description: >
+            Log soft resets.
+        value: 1
