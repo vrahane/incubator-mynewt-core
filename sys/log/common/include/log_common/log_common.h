@@ -56,7 +56,7 @@ struct log;
 /* Log module, eventually this can be a part of the filter. */
 #define LOG_MODULE_DEFAULT          (0)
 #define LOG_MODULE_OS               (1)
-#define LOG_MODULE_NEWTMGR          (2)
+#define LOG_MODULE_MGMT          (2)
 #define LOG_MODULE_NIMBLE_CTLR      (3)
 #define LOG_MODULE_NIMBLE_HOST      (4)
 #define LOG_MODULE_NFFS             (5)

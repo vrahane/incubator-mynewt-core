@@ -214,8 +214,8 @@ log_module_get_name(uint8_t module)
             return "DEFAULT";
         case LOG_MODULE_OS:
             return "OS";
-        case LOG_MODULE_NEWTMGR:
-            return "NEWTMGR";
+        case LOG_MODULE_MGMT:
+            return "MGMT";
         case LOG_MODULE_NIMBLE_CTLR:
             return "NIMBLE_CTLR";
         case LOG_MODULE_NIMBLE_HOST:

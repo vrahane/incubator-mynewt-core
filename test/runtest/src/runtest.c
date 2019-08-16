@@ -268,7 +268,7 @@ runtest_run(const char *test_name, const char *token)
 }
 
 /*
- * Package init routine to register newtmgr "run" commands
+ * Package init routine to register mgmt "run" commands
  */
 void
 runtest_init(void)
@@ -296,8 +296,8 @@ runtest_init(void)
     shell_cmd_register(&runtest_cmd_struct);
 #endif
 
-#if MYNEWT_VAL(RUNTEST_NEWTMGR)
-    rc = runtest_nmgr_register_group();
+#if MYNEWT_VAL(RUNTEST_MGMT)
+    rc = runtest_mgmt_register_group();
     SYSINIT_PANIC_ASSERT(rc == 0);
 #endif
 
