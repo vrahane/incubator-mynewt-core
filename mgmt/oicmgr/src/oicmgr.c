@@ -19,177 +19,199 @@
 
 #include <assert.h>
 #include <string.h>
-
 #include "os/mynewt.h"
+#include "mem/mem.h"
+#include "mgmt/mgmt.h"
+#include "omp/omp.h"
 
-#include <mgmt/mgmt.h>
-#include <smp_os/smp_os.h>
+#include "tinycbor/cbor.h"
+#include "tinycbor/cbor_mbuf_writer.h"
+#include "tinycbor/cbor_mbuf_reader.h"
 
-#include <cborattr/cborattr.h>
-#include <tinycbor/cbor.h>
-#include <tinycbor/cbor_mbuf_reader.h>
-#include <oic/oc_api.h>
+#include "oic/oc_api.h"
 
-struct omgr_ctxt {
-    struct mgmt_ctxt ob_mc;
-    struct cbor_mbuf_reader ob_reader;
+static struct omp_state omgr_state;
+
+static mgmt_alloc_rsp_fn omgr_alloc_rsp;
+static mgmt_trim_front_fn omgr_trim_front;
+static mgmt_reset_buf_fn omgr_reset_buf;
+static mgmt_write_at_fn omgr_write_at;
+static mgmt_init_reader_fn omgr_init_reader;
+static mgmt_init_writer_fn omgr_init_writer;
+static mgmt_free_buf_fn omgr_free_buf;
+
+const struct mgmt_streamer_cfg g_omgr_cbor_cfg = {
+    .alloc_rsp = omgr_alloc_rsp,
+    .trim_front = omgr_trim_front,
+    .reset_buf = omgr_reset_buf,
+    .write_at = omgr_write_at,
+    .init_reader = omgr_init_reader,
+    .init_writer = omgr_init_writer,
+    .free_buf = omgr_free_buf,
 };
 
-struct omgr_state {
-    struct omgr_ctxt os_ctxt;		/* CBOR buffer for MGMT task */
-};
-
-static struct omgr_state omgr_state;
-
-static int
-omgr_oic_read_hdr(struct CborValue *cv, struct mgmt_hdr *out_hdr)
+static void*
+omgr_alloc_rsp(const void *src_buf,  void *req)
 {
-    size_t hlen;
-    int rc;
+    struct os_mbuf *m;
+    struct os_mbuf *rsp;
 
-    struct cbor_attr_t attrs[] = {
-        [0] = {
-            .attribute = "_h",
-            .type = CborAttrByteStringType,
-            .addr.bytestring.data = (void *)out_hdr,
-            .addr.bytestring.len = &hlen,
-            .nodefault = 1,
-            .len = sizeof *out_hdr,
-        },
-        [1] = { 0 }
-    };
-
-    rc = cbor_read_object(cv, attrs);
-    if (rc != 0 || hlen != sizeof *out_hdr) {
-        return MGMT_ERR_EINVAL;
+    if (!req) {
+        return NULL;
     }
 
-    out_hdr->nh_len = ntohs(out_hdr->nh_len);
-    out_hdr->nh_group = ntohs(out_hdr->nh_group);
+    m = (struct os_mbuf *)req;
 
-    return 0;
+    rsp = os_msys_get_pkthdr(0, OS_MBUF_USRHDR_LEN(m));
+    if (!rsp) {
+        return NULL;
+    }
+
+    memcpy(OS_MBUF_USRHDR(rsp), OS_MBUF_USRHDR(m), OS_MBUF_USRHDR_LEN(m));
+
+    return req;
+}
+
+static void
+omgr_trim_front(void *m, size_t len, void *arg)
+{
+    os_mbuf_adj(m, len);
+}
+
+static void
+omgr_reset_buf(void *m, void *arg)
+{
+    if (!m) {
+        return;
+    }
+
+    /* We need to trim from the back because the head
+     * costains useful information which we do not wast
+     * to get rid of
+     */
+    os_mbuf_adj(m, -1 * OS_MBUF_PKTLEN((struct os_mbuf *)m));
 }
 
 static int
-omgr_encode_mgmt_hdr(struct CborEncoder *enc, struct mgmt_hdr hdr)
+omgr_write_at(struct cbor_encoder_writer *writer, size_t offset,
+              const void *data, size_t len, void *arg)
 {
-    int rc;
-
-    rc = cbor_encode_text_string(enc, "_h", 2);
-    if (rc != 0) {
-        return MGMT_ERR_ENOMEM;
-    }
-
-    hdr.nh_len = htons(hdr.nh_len);
-    hdr.nh_group = htons(hdr.nh_group);
-
-    /* Encode the MGMT header in the response. */
-    rc = cbor_encode_byte_string(enc, (void *)&hdr, sizeof hdr);
-    if (rc != 0) {
-        return MGMT_ERR_ENOMEM;
-    }
-
-    return 0;
-}
-
-static int
-omgr_send_err_rsp(struct CborEncoder *enc, const struct mgmt_hdr *hdr,
-                  int mgmt_status)
-{
-    int rc;
-
-    rc = omgr_encode_mgmt_hdr(enc, *hdr);
-    if (rc != 0) {
-        return rc;
-    }
-
-    rc = cbor_encode_text_stringz(enc, "rc");
-    if (rc != 0) {
-        return MGMT_ERR_ENOMEM;
-    }
-
-    rc = cbor_encode_int(enc, mgmt_status);
-    if (rc != 0) {
-        return MGMT_ERR_ENOMEM;
-    }
-
-    return 0;
-}
-
-
-int
-omgr_extract_req_hdr(oc_request_t *req, struct mgmt_hdr *out_hdr)
-{
-    struct omgr_state *o = &omgr_state;
-    uint16_t data_off;
+    struct cbor_mbuf_writer *cmw;
     struct os_mbuf *m;
     int rc;
 
-    coap_get_payload(req->packet, &m, &data_off);
-
-    cbor_mbuf_reader_init(&o->os_ctxt.ob_reader, m, data_off);
-    cbor_parser_init(&o->os_ctxt.ob_reader.r, 0, &o->os_ctxt.ob_mc.parser,
-                     &o->os_ctxt.ob_mc.it);
-
-    rc = omgr_oic_read_hdr(&o->os_ctxt.ob_mc.it, out_hdr);
-    if (rc != 0) {
+    if (!writer) {
         return MGMT_ERR_EINVAL;
     }
+
+    cmw = (struct cbor_mbuf_writer *)writer;
+    m = cmw->m;
+
+    if (offset > OS_MBUF_PKTLEN(m)) {
+        return MGMT_ERR_EINVAL;
+    }
+
+    rc = os_mbuf_copyinto(m, offset, data, len);
+    if (rc) {
+        return MGMT_ERR_ENOMEM;
+    }
+
+    writer->bytes_written = OS_MBUF_PKTLEN(m);
 
     return 0;
 }
 
-int
-omgr_oic_process_put(oc_request_t *req, oc_interface_mask_t mask)
+static void
+omgr_free_buf(void *m, void *arg)
 {
-    struct omgr_state *o = &omgr_state;
-    const struct mgmt_handler *handler;
-    uint16_t data_off;
-    struct os_mbuf *m;
+    if (!m) {
+        return;
+    }
+
+    os_mbuf_free_chain(m);
+}
+
+/*
+ * Inits a reader the mgmt_ctxt's parser.
+ **/
+static int
+omgr_init_reader(struct cbor_decoder_reader *reader, void *m, void *off)
+{
+    struct cbor_mbuf_reader *cmr;
+    uint16_t *data_off;
+
+    if (!reader) {
+        return MGMT_ERR_EINVAL;
+    }
+
+    cmr = (struct cbor_mbuf_reader *) reader;
+    data_off = (uint16_t *) off;
+    cbor_mbuf_reader_init(cmr, m, *data_off);
+    cbor_parser_init(reader,
+                     0,
+                     &omgr_state.m_ctxt->parser,
+                     &omgr_state.m_ctxt->it);
+
+    return 0;
+}
+
+/*
+ * Inits a writer, unused
+ **/
+static int
+omgr_init_writer(struct cbor_encoder_writer *writer,
+                 void *m,
+                 void *unused)
+{
+    struct cbor_mbuf_writer *cmw;
+
+    if (!writer) {
+        return MGMT_ERR_EINVAL;
+    }
+
+    cmw = (struct cbor_mbuf_writer *) writer;
+    cbor_mbuf_writer_init(cmw, m);
+
+    return 0;
+}
+
+static void
+oic_tx_rsp(struct omp_streamer *stmr, int retval, void *unused)
+{
+    oc_send_response((oc_request_t *) omgr_state.request, retval);
+}
+
+/**
+ * Processes a single OMP request and sends the corresponding response(s).
+ */
+static void
+omgr_process_request(oc_request_t *req, oc_interface_mask_t mask)
+{
+    struct cbor_mbuf_reader reader;
+    struct cbor_mbuf_writer writer;
+    struct os_mbuf *m_req;
+    uint16_t req_data_off;
     int rc = 0;
-    struct mgmt_hdr hdr;
-    int rsp_hdr_filled = 0;
 
-    coap_get_payload(req->packet, &m, &data_off);
-
-    cbor_mbuf_reader_init(&o->os_ctxt.ob_reader, m, data_off);
-    cbor_parser_init(&o->os_ctxt.ob_reader.r, 0, &o->os_ctxt.ob_mc.parser,
-                     &o->os_ctxt.ob_mc.it);
-
-    rc = omgr_oic_read_hdr(&o->os_ctxt.ob_mc.it, &hdr);
-    if (rc != 0) {
+    if (!req) {
         rc = MGMT_ERR_EINVAL;
         goto done;
     }
 
-    /* Convert request header to response header to be sent. */
-    switch (hdr.nh_op) {
-    case MGMT_OP_READ:
-        hdr.nh_op = MGMT_OP_READ_RSP;
-        break;
-
-    case MGMT_OP_WRITE:
-        hdr.nh_op = MGMT_OP_WRITE_RSP;
-        break;
-
-    default:
-        goto done;
-    }
-    rsp_hdr_filled = 1;
-
-    /* Begin root map in response. */
-    cbor_encoder_create_map(&g_encoder, &o->os_ctxt.ob_mc.encoder,
-                            CborIndefiniteLength);
-
-    handler = mgmt_find_handler(hdr.nh_group, hdr.nh_id);
-    if (handler == NULL) {
-        rc = MGMT_ERR_ENOENT;
-        goto done;
-    }
-
-    cbor_mbuf_reader_init(&o->os_ctxt.ob_reader, m, data_off);
-    cbor_parser_init(&o->os_ctxt.ob_reader.r, 0, &o->os_ctxt.ob_mc.parser,
-                     &o->os_ctxt.ob_mc.it);
+    coap_get_payload(req->packet, &m_req, &req_data_off);
+    omgr_state = (struct omp_state) {
+        .omp_stmr = {
+            .mgmt_stmr = {
+                .cfg = &g_omgr_cbor_cfg,
+                .reader = &reader.r,
+                .writer = &writer.enc,
+                .cb_arg = &req_data_off,
+            },
+            .rsp_encoder = &g_encoder,
+            .tx_rsp_cb = oic_tx_rsp,
+        },
+        .request = req,
+    };
 
     switch (mask) {
     case OC_IF_BASELINE:
@@ -197,51 +219,15 @@ omgr_oic_process_put(oc_request_t *req, oc_interface_mask_t mask)
         /* Fallthrough */
 
     case OC_IF_RW:
-        switch (hdr.nh_op) {
-        case MGMT_OP_READ_RSP:
-            if (handler->mh_read == NULL) {
-                rc = MGMT_ERR_ENOENT;
-            } else {
-                rc = handler->mh_read(&o->os_ctxt.ob_mc);
-            }
-            break;
-
-        case MGMT_OP_WRITE_RSP:
-            if (handler->mh_write == NULL) {
-                rc = MGMT_ERR_ENOENT;
-            } else {
-                rc = handler->mh_write(&o->os_ctxt.ob_mc);
-            }
-            break;
-
-        default:
-            rc = MGMT_ERR_EINVAL;
-            break;
-        }
-        if (rc != 0) {
-            goto done;
-        }
-
-        /* Encode the MGMT header in the response. */
-        rc = omgr_encode_mgmt_hdr(&o->os_ctxt.ob_mc.encoder, hdr);
-        if (rc != 0) {
-            rc = MGMT_ERR_ENOMEM;
-            goto done;
-        }
+        rc = omp_impl_process_request_packet(&omgr_state, m_req);
         break;
 
     default:
-        break;
+        rc = OC_STATUS_BAD_REQUEST;
     }
 
-    rc = 0;
-
 done:
-    if (rc != 0) {
-        if (rsp_hdr_filled) {
-            rc = omgr_send_err_rsp(&g_encoder, &hdr, rc);
-        }
-        switch (rc) {
+    switch (rc) {
         case 0:
             break;
 
@@ -252,42 +238,34 @@ done:
         default:
             rc = OC_STATUS_BAD_REQUEST;
             break;
-        }
+    }
+    if (rc != 0) {
+        oc_send_response(req, rc);
     }
 
-    cbor_encoder_close_container(&g_encoder, &o->os_ctxt.ob_mc.encoder);
-    oc_send_response(req, rc);
-
-    return rc;
-}
-
-static void
-omgr_oic_put(oc_request_t *req, oc_interface_mask_t mask)
-{
-    omgr_oic_process_put(req, mask);
 }
 
 int
-oicmgr_init(void)
+omgr_pkg_init(void)
 {
-    uint8_t mode;
-    oc_resource_t *res = NULL;
-
     /* Ensure this function only gets called by sysinit. */
     SYSINIT_ASSERT_ACTIVE();
+
+    uint8_t mode;
+    oc_resource_t *res = NULL;
 
     /*
      * net/oic must be initialized before now.
      */
     res = oc_new_resource("/omgr", 1, 0);
-    oc_resource_bind_resource_type(res, "x.mynewt.nmgr");
+    oc_resource_bind_resource_type(res, MYNEWT_VAL(OICMGR_OIC_RESOURCE_NAME));
     mode = OC_IF_RW;
     oc_resource_bind_resource_interface(res, mode);
     oc_resource_set_default_interface(res, mode);
     oc_resource_set_discoverable(res);
-    oc_resource_set_request_handler(res, OC_PUT, omgr_oic_put);
+    oc_resource_set_request_handler(res, OC_PUT, omgr_process_request);
     res->properties |= MYNEWT_VAL(OICMGR_TRANS_SECURITY);
     oc_add_resource(res);
 
-    return (0);
+    return 0;
 }
