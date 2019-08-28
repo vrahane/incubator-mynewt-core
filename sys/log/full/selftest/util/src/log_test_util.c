@@ -123,25 +123,27 @@ ltu_setup_cbmem(struct cbmem *cbmem, struct log *log)
 
 static int
 ltu_walk_verify(struct log *log, struct log_offset *log_offset,
-                void *dptr, uint16_t len)
+                const void *dptr, uint16_t len)
 {
     int rc;
     struct log_entry_hdr ueh;
     struct os_mbuf *om;
     char data[128];
     int dlen;
+    uint16_t hdr_len;
 
     TEST_ASSERT(ltu_str_idx < ltu_str_max_idx);
 
     /*** Verify contents using single read. */
 
-    rc = log_read(log, dptr, &ueh, 0, sizeof(ueh));
-    TEST_ASSERT(rc == sizeof(ueh));
+    rc = log_read(log, dptr, &ueh, 0, LOG_BASE_ENTRY_HDR_SIZE);
+    TEST_ASSERT(rc == LOG_BASE_ENTRY_HDR_SIZE);
 
-    dlen = len - sizeof(ueh);
+    hdr_len = log_hdr_len(&ueh);
+    dlen = len - hdr_len;
     TEST_ASSERT(dlen < sizeof(data));
 
-    rc = log_read(log, dptr, data, sizeof(ueh), dlen);
+    rc = log_read(log, dptr, data, hdr_len, dlen);
     TEST_ASSERT(rc == dlen);
 
     data[rc] = '\0';
@@ -165,7 +167,7 @@ ltu_walk_verify(struct log *log, struct log_offset *log_offset,
     om = os_msys_get_pkthdr(0, 0);
     TEST_ASSERT_FATAL(om != NULL);
 
-    rc = log_read_mbuf(log, dptr, om, sizeof(ueh), dlen);
+    rc = log_read_mbuf(log, dptr, om, hdr_len, dlen);
     TEST_ASSERT(rc == dlen);
 
     TEST_ASSERT(strlen(ltu_str_logs[ltu_str_idx]) == dlen);
@@ -190,7 +192,7 @@ ltu_walk_verify(struct log *log, struct log_offset *log_offset,
 
 static int
 ltu_walk_body_verify(struct log *log, struct log_offset *log_offset,
-                     const struct log_entry_hdr *euh, void *dptr, uint16_t len)
+                     const struct log_entry_hdr *euh, const void *dptr, uint16_t len)
 {
     struct os_mbuf *om;
     char data[128];
@@ -230,7 +232,7 @@ ltu_walk_body_verify(struct log *log, struct log_offset *log_offset,
 
 static int
 ltu_walk_empty(struct log *log, struct log_offset *log_offset,
-               void *dptr, uint16_t len)
+               const void *dptr, uint16_t len)
 {
     TEST_ASSERT(0);
     return 0;

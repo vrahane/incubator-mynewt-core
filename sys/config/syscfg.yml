@@ -28,7 +28,7 @@ syscfg.defs:
         value: 0
         restrictions:
             - '!CONFIG_FCB'
-    CONFIG_NEWTMGR:
+    CONFIG_MGMT:
         description: 'Newtmgr access to config'
         value: 0
 

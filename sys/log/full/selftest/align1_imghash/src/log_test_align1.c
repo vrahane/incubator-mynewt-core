@@ -6,7 +6,7 @@
  * to you under the Apache License, Version 2.0 (the
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
- * 
+ *
  *  http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing,
@@ -16,29 +16,18 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-#ifndef __FS_PRIV_H__
-#define __FS_PRIV_H__
 
 #include "os/mynewt.h"
+#include "log_test_util/log_test_util.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+int
+main(int argc, char **argv)
+{
+    log_test_suite_cbmem_flat();
+    log_test_suite_cbmem_mbuf();
+    log_test_suite_fcb_flat();
+    log_test_suite_fcb_mbuf();
+    log_test_suite_misc();
 
-struct fs_ops;
-struct fs_ops *fs_ops_for(const char *fs_name);
-struct fs_ops *safe_fs_ops_for(const char *fs_name);
-
-#if MYNEWT_VAL(FS_CLI)
-void fs_cli_init(void);
-#endif
-
-#if MYNEWT_VAL(FS_MGMT)
-int fs_mgmt_init(void);
-#endif
-
-#ifdef __cplusplus
+    return tu_any_failed;
 }
-#endif
-
-#endif

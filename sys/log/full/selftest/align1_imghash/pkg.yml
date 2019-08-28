@@ -5,7 +5,7 @@
 # to you under the Apache License, Version 2.0 (the
 # "License"); you may not use this file except in compliance
 # with the License.  You may obtain a copy of the License at
-#
+# 
 #  http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing,
@@ -15,31 +15,17 @@
 # specific language governing permissions and limitations
 # under the License.
 #
+pkg.name: sys/log/full/selftest/align1_imghash
+pkg.type: unittest
+pkg.description: "Log unit tests; flash-alignment=1."
+pkg.author: "Apache Mynewt <dev@mynewt.apache.org>"
+pkg.homepage: "http://mynewt.apache.org/"
+pkg.keywords:
 
-syscfg.defs:
-    SLINKY_LOG_MODULE_GPIO:
-        description: The log module to use for slinky GPIO messages.
-        value: 64
-
-syscfg.vals:
-    # Enable the shell task.
-    SHELL_TASK: 1
-
-    # Include names for statistics.
-    STATS_NAMES: 1
-
-    # Log reboot messages to a flash circular buffer.
-    REBOOT_LOG_FCB: 1
-    LOG_FCB: 1
-
-    CONFIG_FCB: 1
-
-    # Enable shell commands.
-    STATS_CLI: 1
-    LOG_CLI: 1
-    CONFIG_CLI: 1
-
-    # Enable mgmt commands.
-    STATS_MGMT: 1
-    LOG_MGMT: 1
-    CONFIG_MGMT: 1
+pkg.deps: 
+    - "@apache-mynewt-core/sys/console/stub"
+    - "@apache-mynewt-core/sys/log/full"
+    - "@apache-mynewt-core/sys/log/full/selftest/util"
+    - "@apache-mynewt-core/test/testutil"
+    - "@apache-mynewt-mcumgr/smp"
+    - "@apache-mynewt-core/boot/stub"

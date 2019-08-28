@@ -412,7 +412,7 @@ shell_process_command(char *line)
     print_prompt();
 }
 
-#if MYNEWT_VAL(SHELL_NEWTMGR)
+#if MYNEWT_VAL(SHELL_MGMT)
 static void
 shell_process_nlip_line(char *shell_line)
 {
@@ -452,7 +452,7 @@ shell(struct os_event *ev)
         return;
     }
 
-#if MYNEWT_VAL(SHELL_NEWTMGR)
+#if MYNEWT_VAL(SHELL_MGMT)
     shell_process_nlip_line(cmd->line);
 #else
     shell_process_command(cmd->line);
@@ -955,7 +955,7 @@ shell_init(void)
 
     prompt = SHELL_PROMPT;
 
-#if MYNEWT_VAL(SHELL_NEWTMGR)
+#if MYNEWT_VAL(SHELL_MGMT)
     shell_nlip_init();
 #endif
 

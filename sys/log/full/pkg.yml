@@ -36,10 +36,13 @@ pkg.deps.LOG_CLI:
     - "@apache-mynewt-core/sys/shell"
     - "@apache-mynewt-core/encoding/base64"
 
-pkg.deps.LOG_NEWTMGR:
+pkg.deps.LOG_MGMT:
     - "@apache-mynewt-mcumgr/cmd/log_mgmt"
     - "@apache-mynewt-mcumgr/cborattr"
     - "@apache-mynewt-core/encoding/tinycbor"
+
+pkg.deps.LOG_FLAGS_IMAGE_HASH:
+    - "@apache-mynewt-core/mgmt/imgmgr"
 
 pkg.deps.LOG_STORAGE_WATERMARK:
     - sys/config

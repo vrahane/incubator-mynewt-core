@@ -6,7 +6,7 @@
  * to you under the Apache License, Version 2.0 (the
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
- * 
+ *
  *  http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing,
@@ -16,29 +16,29 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-#ifndef __FS_PRIV_H__
-#define __FS_PRIV_H__
 
-#include "os/mynewt.h"
+#include <defs/error.h>
+#include "bootutil/bootutil.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+int boot_current_slot;
 
-struct fs_ops;
-struct fs_ops *fs_ops_for(const char *fs_name);
-struct fs_ops *safe_fs_ops_for(const char *fs_name);
-
-#if MYNEWT_VAL(FS_CLI)
-void fs_cli_init(void);
-#endif
-
-#if MYNEWT_VAL(FS_MGMT)
-int fs_mgmt_init(void);
-#endif
-
-#ifdef __cplusplus
+int boot_swap_type(void)
+{
+    return BOOT_SWAP_TYPE_NONE;
 }
-#endif
 
-#endif
+int boot_set_pending(int permanent)
+{
+    return SYS_ENOTSUP;
+}
+
+int boot_set_confirmed(void)
+{
+    return SYS_ENOTSUP;
+}
+
+int
+split_go(int loader_slot, int split_slot, void **entry)
+{
+    return SYS_ENOTSUP;
+}

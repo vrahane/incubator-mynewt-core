@@ -19,7 +19,7 @@
 
 #include "os/mynewt.h"
 
-#if MYNEWT_VAL(RUNTEST_NEWTMGR)
+#if MYNEWT_VAL(RUNTEST_MGMT)
 #include <string.h>
 
 #include "mgmt/mgmt.h"
@@ -31,23 +31,32 @@
 #include "runtest/runtest.h"
 #include "runtest_priv.h"
 
-static int runtest_nmgr_test(struct mgmt_cbuf *);
-static int runtest_nmgr_list(struct mgmt_cbuf *);
+static int runtest_mgmt_test(struct mgmt_ctxt *);
+static int runtest_mgmt_list(struct mgmt_ctxt *);
 
-static struct mgmt_group runtest_nmgr_group;
+static struct mgmt_group runtest_mgmt_group;
 
-static const struct mgmt_handler runtest_nmgr_handlers[] = {
-    [RUNTEST_NMGR_OP_TEST] = { NULL, runtest_nmgr_test },
-    [RUNTEST_NMGR_OP_LIST] = { runtest_nmgr_list, NULL }
+static const struct mgmt_handler runtest_mgmt_handlers[] = {
+    [RUNTEST_SMP_OP_TEST] = { NULL, runtest_mgmt_test },
+    [RUNTEST_SMP_OP_LIST] = { runtest_mgmt_list, NULL }
+};
+
+#define RUNTEST_MGMT_HANDLER_CNT \
+    sizeof(runtest_mgmt_handlers) / sizeof(runtest_mgmt_handlers[0])
+
+static struct mgmt_group runtest_mgmt_group = {
+    .mg_handlers = (struct mgmt_handler *)runtest_mgmt_handlers,
+    .mg_handlers_count = RUNTEST_MGMT_HANDLER_CNT,
+    .mg_group_id = MGMT_GROUP_ID_RUN,
 };
 
 /*
- * package "run test" request from newtmgr and enqueue on default queue
+ * package "run test" request from mgmt and enqueue on default queue
  * of the application which is actually running the tests (e.g., mynewtsanity).
  * Application callback was initialized by call to run_evb_set() above.
  */
 static int
-runtest_nmgr_test(struct mgmt_cbuf *cb)
+runtest_mgmt_test(struct mgmt_ctxt *mc)
 {
     char testname[MYNEWT_VAL(RUNTEST_MAX_TEST_NAME_LEN)] = "";
     char token[MYNEWT_VAL(RUNTEST_MAX_TOKEN_LEN)];
@@ -71,7 +80,7 @@ runtest_nmgr_test(struct mgmt_cbuf *cb)
         }
     };
 
-    rc = cbor_read_object(&cb->it, attr);
+    rc = cbor_read_object(&mc->it, attr);
     if (rc != 0) {
         return MGMT_ERR_EINVAL;
     }
@@ -104,24 +113,24 @@ runtest_nmgr_test(struct mgmt_cbuf *cb)
  * List all register tests
  */
 static int
-runtest_nmgr_list(struct mgmt_cbuf *cb)
+runtest_mgmt_list(struct mgmt_ctxt *mc)
 {
     CborError g_err = CborNoError;
     CborEncoder run_list;
     struct ts_suite *ts;
 
-    g_err |= cbor_encode_text_stringz(&cb->encoder, "rc");
-    g_err |= cbor_encode_int(&cb->encoder, MGMT_ERR_EOK);
+    g_err |= cbor_encode_text_stringz(&mc->encoder, "rc");
+    g_err |= cbor_encode_int(&mc->encoder, MGMT_ERR_EOK);
 
-    g_err |= cbor_encode_text_stringz(&cb->encoder, "run_list");
-    g_err |= cbor_encoder_create_array(&cb->encoder, &run_list,
+    g_err |= cbor_encode_text_stringz(&mc->encoder, "run_list");
+    g_err |= cbor_encoder_create_array(&mc->encoder, &run_list,
                                        CborIndefiniteLength);
 
     SLIST_FOREACH(ts, &g_ts_suites, ts_next) {
         g_err |= cbor_encode_text_stringz(&run_list, ts->ts_name);
     }
 
-    g_err |= cbor_encoder_close_container(&cb->encoder, &run_list);
+    g_err |= cbor_encoder_close_container(&mc->encoder, &run_list);
 
     if (g_err) {
         return MGMT_ERR_ENOMEM;
@@ -130,15 +139,14 @@ runtest_nmgr_list(struct mgmt_cbuf *cb)
 }
 
 /*
- * Register nmgr group handlers
+ * Register mgmt group handlers
  */
 int
-runtest_nmgr_register_group(void)
+runtest_mgmt_register_group(void)
 {
-    MGMT_GROUP_SET_HANDLERS(&runtest_nmgr_group, runtest_nmgr_handlers);
-    runtest_nmgr_group.mg_group_id = MGMT_GROUP_ID_RUN;
-
-    return mgmt_group_register(&runtest_nmgr_group);
+    mgmt_register_group(&runtest_mgmt_group);
+    
+    return 0;
 }
 
-#endif /* MYNEWT_VAL(RUNTEST_NEWTMGR) */
+#endif /* MYNEWT_VAL(RUNTEST_MGMT) */
