@@ -29,6 +29,10 @@ syscfg.defs:
         restrictions:
             - '!CONFIG_FCB'
     CONFIG_MGMT:
+        description: 'SMP access to config'
+        value: 0
+
+    CONFIG_NEWTMGR:
         description: 'Newtmgr access to config'
         value: 0
 
@@ -88,3 +92,5 @@ syscfg.defs.CONFIG_NFFS:
         description: 'Limit how many items stored in file before compressing'
         value: 32
 
+syscfg.vals.CONFIG_NEWTMGR:
+    CONFIG_MGMT: MYNEWT_VAL(CONFIG_NEWTMGR)
