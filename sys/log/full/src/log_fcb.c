@@ -159,6 +159,12 @@ log_fcb_start_append(struct log *log, int len, struct fcb_entry *loc)
         }
 #endif
 
+        /* Notify upper layer that a rotation is about to occur */
+        if (log->l_rotate_notify_cb != NULL) {
+            fcb_append_to_scratch(fcb);
+            log->l_rotate_notify_cb(log);
+        }
+
 #if MYNEWT_VAL(LOG_FCB_BOOKMARKS)
         /* The FCB needs to be rotated.  Invalidate all bookmarks. */
         log_fcb_clear_bmarks(fcb_log);
@@ -180,8 +186,6 @@ log_fcb_start_append(struct log *log, int len, struct fcb_entry *loc)
             fcb_log->fl_watermark_off = fcb->f_oldest->fa_off;
         }
 #endif
-
-
     }
 
 err:
@@ -465,7 +469,6 @@ log_fcb_read_mbuf(struct log *log, const void *dptr, struct os_mbuf *om,
         if (rc) {
             goto done;
         }
-
         rc = os_mbuf_append(om, data, read_len);
         if (rc) {
             goto done;
@@ -479,13 +482,24 @@ done:
     return len - rem_len;
 }
 
+/**
+ * @brief Common function for walking a single area or the full logs
+ *
+ * @param      The log
+ * @param[in]  The walk function
+ * @param      The log offset
+ * @param[in]  Reading either a single area or the full log
+ *
+ * @return     { description_of_the_return_value }
+ */
 static int
-log_fcb_walk(struct log *log, log_walk_func_t walk_func,
-             struct log_offset *log_offset)
+log_fcb_walk_impl(struct log *log, log_walk_func_t walk_func,
+             struct log_offset *log_offset, bool area)
 {
     struct fcb *fcb;
     struct fcb_log *fcb_log;
     struct fcb_entry loc;
+    struct flash_area *fap;
     int rc;
 
     fcb_log = log->l_arg;
@@ -503,6 +517,7 @@ log_fcb_walk(struct log *log, log_walk_func_t walk_func,
     default:
         return rc;
     }
+    fap = loc.fe_area;
 
 #if MYNEWT_VAL(LOG_FCB_BOOKMARKS)
     /* If a minimum index was specified (i.e., we are not just retrieving the
@@ -514,6 +529,12 @@ log_fcb_walk(struct log *log, log_walk_func_t walk_func,
 #endif
 
     do {
+        if (area) {
+            if (fap != loc.fe_area) {
+                return 0;
+            }
+        }
+
         rc = walk_func(log, log_offset, &loc, loc.fe_data_len);
         if (rc != 0) {
             if (rc < 0) {
@@ -525,6 +546,20 @@ log_fcb_walk(struct log *log, log_walk_func_t walk_func,
     } while (fcb_getnext(fcb, &loc) == 0);
 
     return 0;
+}
+
+static int
+log_fcb_walk(struct log *log, log_walk_func_t walk_func,
+             struct log_offset *log_offset)
+{
+    return log_fcb_walk_impl(log, walk_func, log_offset, false);
+}
+
+static int
+log_fcb_walk_area(struct log *log, log_walk_func_t walk_func,
+             struct log_offset *log_offset)
+{
+    return log_fcb_walk_impl(log, walk_func, log_offset, true);
 }
 
 static int
@@ -728,6 +763,7 @@ log_fcb_copy_entry(struct log *log, struct fcb_entry *entry,
     struct fcb *fcb_tmp;
 
     rc = log_fcb_read(log, entry, &ueh, 0, LOG_BASE_ENTRY_HDR_SIZE);
+
     if (rc != LOG_BASE_ENTRY_HDR_SIZE) {
         goto err;
     }
@@ -774,7 +810,6 @@ log_fcb_copy(struct log *log, struct fcb *src_fcb, struct fcb *dst_fcb,
     int rc;
 
     rc = 0;
-
     memset(&entry, 0, sizeof(entry));
     while (!fcb_getnext(src_fcb, &entry)) {
         if (entry.fe_elem_off < offset) {
@@ -860,22 +895,23 @@ err:
 }
 
 const struct log_handler log_fcb_handler = {
-    .log_type = LOG_TYPE_STORAGE,
-    .log_read = log_fcb_read,
-    .log_read_mbuf = log_fcb_read_mbuf,
-    .log_append = log_fcb_append,
-    .log_append_body = log_fcb_append_body,
-    .log_append_mbuf = log_fcb_append_mbuf,
+    .log_type             = LOG_TYPE_STORAGE,
+    .log_read             = log_fcb_read,
+    .log_read_mbuf        = log_fcb_read_mbuf,
+    .log_append           = log_fcb_append,
+    .log_append_body      = log_fcb_append_body,
+    .log_append_mbuf      = log_fcb_append_mbuf,
     .log_append_mbuf_body = log_fcb_append_mbuf_body,
-    .log_walk = log_fcb_walk,
-    .log_flush = log_fcb_flush,
+    .log_walk             = log_fcb_walk,
+    .log_walk_sector      = log_fcb_walk_area,
+    .log_flush            = log_fcb_flush,
 #if MYNEWT_VAL(LOG_STORAGE_INFO)
-    .log_storage_info = log_fcb_storage_info,
+    .log_storage_info     = log_fcb_storage_info,
 #endif
 #if MYNEWT_VAL(LOG_STORAGE_WATERMARK)
-    .log_set_watermark = log_fcb_set_watermark,
+    .log_set_watermark    = log_fcb_set_watermark,
 #endif
-    .log_registered = log_fcb_registered,
+    .log_registered       = log_fcb_registered,
 };
 
 #endif

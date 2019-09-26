@@ -458,6 +458,11 @@ log_hdr_len(const struct log_entry_hdr *hdr)
     return LOG_BASE_ENTRY_HDR_SIZE;
 }
 
+void
+log_set_rotate_notify_cb(struct log *log, log_notify_rotate_cb *cb)
+{
+    log->l_rotate_notify_cb = cb;
+}
 
 static int
 log_chk_type(uint8_t etype)
@@ -913,6 +918,30 @@ log_walk_body(struct log *log, log_walk_body_func_t walk_body_func,
     rc = log->l_log->log_walk(log, log_walk_body_fn, log_offset);
     log_offset->lo_arg = lwba.arg;
 
+    return rc;
+}
+
+int
+log_walk_body_section(struct log *log, log_walk_body_func_t walk_body_func,
+              struct log_offset *log_offset)
+{
+    struct log_walk_body_arg lwba = {
+        .fn = walk_body_func,
+        .arg = log_offset->lo_arg,
+    };
+    int rc;
+
+    log_offset->lo_arg = &lwba;
+
+    if (!log->l_log->log_walk_sector) {
+        rc = SYS_ENOTSUP;
+        goto err;
+    }
+
+    rc = log->l_log->log_walk_sector(log, log_walk_body_fn, log_offset);
+    log_offset->lo_arg = lwba.arg;
+
+err:
     return rc;
 }
 
