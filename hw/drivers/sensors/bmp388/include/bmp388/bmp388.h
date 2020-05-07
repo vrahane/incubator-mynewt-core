@@ -366,17 +366,16 @@ enum bmp388_read_mode {
 struct bmp388_read_mode_cfg {
     enum bmp388_read_mode mode;
     uint8_t int_num:1;
-    uint8_t int_type;
+    uint8_t int_type:2;
 };
 
 struct bmp388_cfg {
-    uint8_t rate;
-
     /* Read mode config */
     struct bmp388_read_mode_cfg read_mode;
 
-    uint8_t filter_press_osr;
-    uint8_t filter_temp_osr;
+    uint8_t filter_press_osr:5;
+    uint8_t filter_temp_osr:5;
+    uint8_t rate:5;
 
     /* interrupt config */
     uint8_t int_enable_type  : 2;
