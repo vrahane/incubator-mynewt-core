@@ -52,12 +52,16 @@
 os_set_env:
         .fnstart
         .cantunwind
-
-        MSR     PSP,R0
+        
+        MSR     PSP_NS,R0
+        /** VVV **/
+        MRS     R0, MSP      /* Read MSP into R0 */
+        MSR     MSP_NS, R0   /* Set MSP_NS to address from MSP in R0 */
+        /* ------- */
         LDR     R0,=os_flags
         LDRB    R0,[R0]
         ADDS    R0, R0, #2
-        MSR     CONTROL,R0
+        MSR     CONTROL_NS,R0
         ISB
         BX      LR
 
@@ -104,7 +108,7 @@ SVC_Handler:
         POP     {R4,LR}
 #endif
 
-        MRS     R0,PSP                  /* Read PSP */
+        MRS     R0,PSP_NS               /* Read PSP */
         LDR     R1,[R0,#24]             /* Read Saved PC from Stack */
         LDRB    R1,[R1,#-2]             /* Load SVC Number */
         CBNZ    R1,SVC_User
@@ -114,7 +118,7 @@ SVC_Handler:
         BLX     R12                     /* Call SVC Function */
         POP     {R4,LR}                 /* Restore EXC_RETURN */
 
-        MRS     R12,PSP                 /* Read PSP */
+        MRS     R12,PSP_NS              /* Read PSP */
         STM     R12,{R0-R2}             /* Store return values */
 
 #if MYNEWT_VAL(OS_SYSVIEW)
@@ -139,7 +143,7 @@ SVC_User:
         LDM     R0,{R0-R3,R12}          /* Read R0-R3,R12 from stack */
         BLX     R4                      /* Call SVC Function */
 
-        MRS     R12,PSP
+        MRS     R12,PSP_NS
         STM     R12,{R0-R3}             /* Function return values */
 SVC_Done:
 #if MYNEWT_VAL(OS_SYSVIEW)
@@ -171,7 +175,7 @@ PendSV_Handler:
         IT      EQ
         BXEQ    LR                      /* RETI, no task switch */
 
-        MRS     R12,PSP                 /* Read PSP */
+        MRS     R12,PSP_NS              /* Read PSP */
 #if MYNEWT_VAL(HARDFLOAT)
         TST     LR,#0x10                /* is it extended frame? */
         IT      EQ
@@ -184,7 +188,7 @@ PendSV_Handler:
         STR     R2,[R3]                 /* g_current_task = highest ready */
 
         LDR     R12,[R2,#4]             /* get stack bottom of task we will start */
-        MSR     PSPLIM,R12              /* update stack limit register */
+        MSR     PSPLIM_NS,R12              /* update stack limit register */
         LDR     R12,[R2,#0]             /* get stack pointer of task we will start */
 #if MYNEWT_VAL(HARDFLOAT)
         LDMIA   R12!,{R4-R11,LR}        /* Restore New Context */
@@ -196,7 +200,7 @@ PendSV_Handler:
 #else
         LDMIA   R12!,{R4-R11}           /* Restore New Context */
 #endif
-        MSR     PSP,R12                 /* Write PSP */
+        MSR     PSP_NS,R12              /* Write PSP */
 
 #if MYNEWT_VAL(OS_SYSVIEW)
         PUSH    {R4,LR}
@@ -250,13 +254,13 @@ os_default_irq_asm:
 #endif
 
         /*
-         * LR = 0xfffffff9 if we were using MSP as SP
-         * LR = 0xfffffffd if we were using PSP as SP
+         * LR = 0xffffff4d if we were using MSP as SP
+         * LR = 0xfffffff9 if we were using PSP as SP
          */
-        TST     LR,#4
+        TST     LR,#68
         ITE     EQ
-        MRSEQ   R3,MSP
-        MRSNE   R3,PSP
+        MRSEQ   R3,MSP_NS
+        MRSNE   R3,PSP_NS
         PUSH    {R3-R11,LR}
         MOV     R0, SP
         BL      os_default_irq

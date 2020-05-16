@@ -6,7 +6,7 @@
 # to you under the Apache License, Version 2.0 (the
 # "License"); you may not use this file except in compliance
 # with the License.  You may obtain a copy of the License at
-#
+# 
 #  http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing,
@@ -17,30 +17,15 @@
 # under the License.
 #
 
-pkg.name: hw/bsp/nordic_pca10090
-pkg.type: bsp
-pkg.description: BSP definition for the Nordic PCA10090 (nRF9160 DK)
+pkg.name: hw/mcu/nordic/spm
+pkg.description: Secure Protection Manager specific to nordic MCUs
 pkg.author: "Apache Mynewt <dev@mynewt.apache.org>"
 pkg.homepage: "http://mynewt.apache.org/"
 pkg.keywords:
-    - nrf9160
-    - nrf9160dk
-    - nordic
-    - pca10090
-
-pkg.cflags:
-     - '-DNRF9160_XXAA'
-     #- '-DNRF_TRUSTZONE_NONSECURE'
-     - '-mcmse'
-     - '-D__ARM_FEATURE_CMSE=3'
-
-pkg.cflags.HARDFLOAT:
-    - -mfloat-abi=hard -mfpu=fpv4-sp-d16
+    - nrf91
+    - nrfx
+    - SPU
+    - SPM
 
 pkg.deps:
-    - "@apache-mynewt-core/hw/mcu/nordic/nrf91xx"
-    - "@apache-mynewt-core/libc/baselibc"
-
-pkg.deps.UARTBB_0:
-    - "@apache-mynewt-core/hw/drivers/uart/uart_bitbang"
-
+    - "@apache-mynewt-core/hw/mcu/nordic"

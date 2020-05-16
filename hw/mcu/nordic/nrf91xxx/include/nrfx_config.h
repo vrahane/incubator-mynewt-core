@@ -17,43 +17,13 @@
  * under the License.
  */
 
-#ifndef _OS_ARCH_ARM_H
-#define _OS_ARCH_ARM_H
+#ifndef NRFX_CONFIG_H__
+#define NRFX_CONFIG_H__
 
-#include <stdint.h>
-#include "syscfg/syscfg.h"
-#include "mcu/cmsis_nvic.h"
-#include "mcu/cortex_m33.h"
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-/* CPU status register */
-typedef uint32_t os_sr_t;
-
-/* Stack element */
-typedef uint32_t os_stack_t;
-
-/* Stack sizes for common OS tasks */
-#define OS_SANITY_STACK_SIZE (64)
-#if MYNEWT_VAL(OS_SYSVIEW)
-#define OS_IDLE_STACK_SIZE (80)
+#if NRF9160_XXAA
+#include "nrfx9160_config.h"
 #else
-#define OS_IDLE_STACK_SIZE (64)
+#error Unsupported chip selected
 #endif
 
-static inline int
-os_arch_in_isr(void)
-{
-    return (SCB_NS->ICSR & SCB_ICSR_VECTACTIVE_Msk) != 0;
-}
-
-/* Include common arch definitions and APIs */
-#include "os/arch/common.h"
-
-#ifdef __cplusplus
-}
-#endif
-
-#endif /* _OS_ARCH_ARM_H */
+#endif // NRFX_CONFIG_H__

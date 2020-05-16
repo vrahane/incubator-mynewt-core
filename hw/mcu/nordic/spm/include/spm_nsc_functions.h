@@ -17,43 +17,27 @@
  * under the License.
  */
 
-#ifndef _OS_ARCH_ARM_H
-#define _OS_ARCH_ARM_H
+#ifndef __SPM_NSC_FUNCTIONS_H__
+#define __SPM_NSC_FUNCTIONS_H__
 
 #include <stdint.h>
-#include "syscfg/syscfg.h"
-#include "mcu/cmsis_nvic.h"
-#include "mcu/cortex_m33.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+/**
+ * @brief Callback function pointer definition.
+ */
+typedef void (*spm_nsc_func_cb_t) (void);
 
-/* CPU status register */
-typedef uint32_t os_sr_t;
+/**
+ * @brief Invokes the supplied callback which is on the non-secure side.
+ *
+ * Returns a number which is one more than the value returned in previous
+ * invocation of this function. Initial invocation returns 1.
+ *
+ * @param px_cb The callback to invoke.
+ *
+ * @return A number which is one more than the value returned in previous
+ * invocation of this function.
+ */
+uint32_t spm_nsc_function(spm_nsc_func_cb_t px_cb);
 
-/* Stack element */
-typedef uint32_t os_stack_t;
-
-/* Stack sizes for common OS tasks */
-#define OS_SANITY_STACK_SIZE (64)
-#if MYNEWT_VAL(OS_SYSVIEW)
-#define OS_IDLE_STACK_SIZE (80)
-#else
-#define OS_IDLE_STACK_SIZE (64)
-#endif
-
-static inline int
-os_arch_in_isr(void)
-{
-    return (SCB_NS->ICSR & SCB_ICSR_VECTACTIVE_Msk) != 0;
-}
-
-/* Include common arch definitions and APIs */
-#include "os/arch/common.h"
-
-#ifdef __cplusplus
-}
-#endif
-
-#endif /* _OS_ARCH_ARM_H */
+#endif /* __SPM_NSC_FUNCTIONS_H__ */

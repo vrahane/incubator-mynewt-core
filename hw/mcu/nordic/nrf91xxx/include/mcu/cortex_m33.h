@@ -17,43 +17,29 @@
  * under the License.
  */
 
-#ifndef _OS_ARCH_ARM_H
-#define _OS_ARCH_ARM_H
+#ifndef __MCU_CORTEX_M33_H__
+#define __MCU_CORTEX_M33_H__
 
-#include <stdint.h>
-#include "syscfg/syscfg.h"
-#include "mcu/cmsis_nvic.h"
-#include "mcu/cortex_m33.h"
+#include "nrf.h"
+#include "core_cm33.h"
+#include <syscfg/syscfg.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/* CPU status register */
-typedef uint32_t os_sr_t;
+#define OS_TICKS_PER_SEC    (128)
 
-/* Stack element */
-typedef uint32_t os_stack_t;
-
-/* Stack sizes for common OS tasks */
-#define OS_SANITY_STACK_SIZE (64)
-#if MYNEWT_VAL(OS_SYSVIEW)
-#define OS_IDLE_STACK_SIZE (80)
-#else
-#define OS_IDLE_STACK_SIZE (64)
-#endif
-
-static inline int
-os_arch_in_isr(void)
+static inline void
+hal_debug_break(void)
 {
-    return (SCB_NS->ICSR & SCB_ICSR_VECTACTIVE_Msk) != 0;
+#if !MYNEWT_VAL(MCU_DEBUG_IGNORE_BKPT)
+    __BKPT(1);
+#endif
 }
-
-/* Include common arch definitions and APIs */
-#include "os/arch/common.h"
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* _OS_ARCH_ARM_H */
+#endif /* __MCU_CORTEX_M33_H__ */

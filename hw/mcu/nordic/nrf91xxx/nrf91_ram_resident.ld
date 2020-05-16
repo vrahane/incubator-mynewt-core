@@ -17,20 +17,6 @@
  */
 OUTPUT_FORMAT ("elf32-littlearm", "elf32-bigarm", "elf32-littlearm")
 
-MEMORY
-{
-  /* All secure memory for now */
-  FLASH (rx) : ORIGIN = 0x00000000, LENGTH = 0x100000
-  /* All Secure memory for now */
-  RAM (rwx) : ORIGIN = 0x20000000, LENGTH = 0x40000
-/*
- * Flash: 1MB (total) - 64 KB (Secure code) = 960 KB (remaining)
- * FLASH (rx) : ORIGIN = 0x00010000, LENGTH = 0xf0000
- * SRAM:  256KB (total) - 32 KB (Secure code) = 224 KB (remaining)
- * RAM (rwx) : ORIGIN = 0x20008000, LENGTH = 0x38000
- */
-}
-
 /* Linker script to place sections and symbol values. Should be used together
  * with other linker script that defines memory regions FLASH and RAM.
  * It references following symbols, which must be defined in code:
@@ -62,15 +48,12 @@ ENTRY(Reset_Handler)
 
 SECTIONS
 {
-    .imghdr (NOLOAD):
-    {
-        . = . + _imghdr_size;
-    } > FLASH
-    __text = .;
-
     .text :
     {
+        __text = .;
+
         __isr_vector_start = .;
+        __vector_tbl_reloc__ = .;
         KEEP(*(.isr_vector))
         __isr_vector_end = .;
         *(.text*)
@@ -92,58 +75,38 @@ SECTIONS
         *(SORT(.dtors.*))
         *(.dtors)
 
+        *(.rodata*)
+
         *(.eh_frame*)
         . = ALIGN(4);
-    } > FLASH
-/*
-    /* Privileged functions - Section needs to be 32 byte aligned to satisfy MPU requirements. 
-    .privileged_functions : ALIGN(32)
-    {
-        . = ALIGN(32);
-        __privileged_functions_start__ = .;
-        *(privileged_functions)
-        . = ALIGN(32);
-        /* End address must be the last address in the region, therefore, -1. 
-        __privileged_functions_end__ = . - 1;
-    } > FLASH
+    } > RAM
 
-    /* Main Text Section - Section needs to be 32 byte aligned to satisfy MPU requirements. 
-    .text : ALIGN(32)
-    {
-        . = ALIGN(32);
-        __unprivileged_flash_start__ = .;
-        *(.text*)
-        *(.rodata .rodata.* .constdata .constdata.*)
-        . = ALIGN(32);
-        /* End address must be the last address in the region, therefore, -1. 
-        __unprivileged_flash_end__ = . - 1;
-    } > FLASH
-*/
+
     .ARM.extab :
     {
         *(.ARM.extab* .gnu.linkonce.armextab.*)
         . = ALIGN(4);
-    } > FLASH
+    } > RAM
 
     __exidx_start = .;
     .ARM.exidx :
     {
         *(.ARM.exidx* .gnu.linkonce.armexidx.*)
         . = ALIGN(4);
-    } > FLASH
+    } > RAM
     __exidx_end = .;
 
     __etext = .;
 
-    .vector_relocation :
+    /* This section will be zeroed by RTT package init */
+    .rtt (NOLOAD):
     {
         . = ALIGN(4);
-        __vector_tbl_reloc__ = .;
-        . = . + (__isr_vector_end - __isr_vector_start);
+        *(.rtt)
         . = ALIGN(4);
     } > RAM
 
-    .data : AT (__etext)
+    .data :
     {
         __data_start__ = .;
         *(vtable)
@@ -176,9 +139,13 @@ SECTIONS
         __data_end__ = .;
     } > RAM
 
-    /* Non-zeroed BSS.  This section is similar to BSS, with the following
-     * caveat:
+    /* Non-zeroed BSS.  This section is similar to BSS, with the following two
+     * caveats:
      *    1. It does not get zeroed at init-time.
+     *    2. You cannot use it as source memory for EasyDMA.
+     *
+     * This section exists because of a hardware defect; see errata 33 and 34
+     * in nrf52 errata sheet.
      */
     .bssnz :
     {
@@ -210,6 +177,8 @@ SECTIONS
     {
         *(.stack*)
     } > RAM
+
+    _ram_start = ORIGIN(RAM);
 
     /* Set stack top to end of RAM, and stack limit move down by
      * size of stack_dummy section */

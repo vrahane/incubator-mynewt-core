@@ -17,43 +17,34 @@
  * under the License.
  */
 
-#ifndef _OS_ARCH_ARM_H
-#define _OS_ARCH_ARM_H
+#include <arm_cmse.h>
+#include "spm_nsc_functions.h"
+#include "secure_port_macros.h"
 
-#include <stdint.h>
-#include "syscfg/syscfg.h"
-#include "mcu/cmsis_nvic.h"
-#include "mcu/cortex_m33.h"
+/**
+ * @brief Counter returned from spm_nsc_function.
+ */
+static uint32_t secure_counter = 0;
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+/**
+ * @brief typedef for non-secure callback.
+ */
+typedef void ( *nonsecure_cb_t ) ( void ) __attribute__( ( cmse_nonsecure_call ) );
 
-/* CPU status register */
-typedef uint32_t os_sr_t;
-
-/* Stack element */
-typedef uint32_t os_stack_t;
-
-/* Stack sizes for common OS tasks */
-#define OS_SANITY_STACK_SIZE (64)
-#if MYNEWT_VAL(OS_SYSVIEW)
-#define OS_IDLE_STACK_SIZE (80)
-#else
-#define OS_IDLE_STACK_SIZE (64)
-#endif
-
-static inline int
-os_arch_in_isr(void)
+__attribute__((cmse_nonsecure_entry)) __attribute__((used)) uint32_t
+spm_nsc_function(spm_nsc_func_cb_t px_cb)
 {
-    return (SCB_NS->ICSR & SCB_ICSR_VECTACTIVE_Msk) != 0;
+    nonsecure_cb_t px_nonsecure_cb;
+
+    /* Return function pointer with cleared LSB. */
+    px_non_secure_cb = (non_secure_cb_t) cmse_nsfptr_create(px_cb);
+
+    /* Invoke the supplied callback. */
+    px_nonsecure_cb();
+
+    /* Increment the secure side counter. */
+    secure_counter++;
+
+    /* Return the secure side counter. */
+    return secure_counter;
 }
-
-/* Include common arch definitions and APIs */
-#include "os/arch/common.h"
-
-#ifdef __cplusplus
-}
-#endif
-
-#endif /* _OS_ARCH_ARM_H */

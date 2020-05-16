@@ -55,6 +55,16 @@ bsp.flash_map:
         FLASH_AREA_IMAGE_SCRATCH:
             device: 0
             offset: 0x0007c000
+#
+#            offset: 0x00010000
+#            size: 232kB
+#        FLASH_AREA_IMAGE_1:
+#            device: 0
+#            offset: 0x0004A000
+#            size: 232kB
+#        FLASH_AREA_IMAGE_SCRATCH:
+#            device: 0
+#            offset: 0x00086000
             size: 4kB
 
         # User areas.
@@ -67,4 +77,10 @@ bsp.flash_map:
             user_id: 1
             device: 0
             offset: 0x0007d000
+#            offset: 0x00084000
+#            size: 8kB
+#        FLASH_AREA_NFFS:
+#            user_id: 1
+#            device: 0
+#            offset: 0x00088000
             size: 12kB

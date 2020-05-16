@@ -29,6 +29,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#if 0
 #include <nrfx_twi_twim.h>
 #include <hal/nrf_gpio.h>
 
@@ -79,3 +80,4 @@ nrfx_err_t nrfx_twi_twim_bus_recover(uint32_t scl_pin, uint32_t sda_pin)
         return NRFX_ERROR_INTERNAL;
     }
 }
+#endif

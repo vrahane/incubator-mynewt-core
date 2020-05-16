@@ -17,43 +17,32 @@
  * under the License.
  */
 
-#ifndef _OS_ARCH_ARM_H
-#define _OS_ARCH_ARM_H
+#include <inttypes.h>
+#include <string.h>
+#include <hal/hal_bsp.h>
+#include "nrf.h"
 
-#include <stdint.h>
-#include "syscfg/syscfg.h"
-#include "mcu/cmsis_nvic.h"
-#include "mcu/cortex_m33.h"
-
-#ifdef __cplusplus
-extern "C" {
+#ifndef min
+#define min(a, b) ((a)<(b)?(a):(b))
 #endif
 
-/* CPU status register */
-typedef uint32_t os_sr_t;
-
-/* Stack element */
-typedef uint32_t os_stack_t;
-
-/* Stack sizes for common OS tasks */
-#define OS_SANITY_STACK_SIZE (64)
-#if MYNEWT_VAL(OS_SYSVIEW)
-#define OS_IDLE_STACK_SIZE (80)
-#else
-#define OS_IDLE_STACK_SIZE (64)
-#endif
-
-static inline int
-os_arch_in_isr(void)
+int
+hal_bsp_hw_id_len(void)
 {
-    return (SCB_NS->ICSR & SCB_ICSR_VECTACTIVE_Msk) != 0;
+    return sizeof(NRF_FICR_S->INFO.DEVICEID);
 }
 
-/* Include common arch definitions and APIs */
-#include "os/arch/common.h"
+/*
+ * These values are generated at random.
+ * DEVICEID[0-1].
+ */
+int
+hal_bsp_hw_id(uint8_t *id, int max_len)
+{
+    int cnt;
 
-#ifdef __cplusplus
+    cnt = min(sizeof(NRF_FICR_S->INFO.DEVICEID), max_len);
+    memcpy(id, (void *)NRF_FICR_S->INFO.DEVICEID, cnt);
+
+    return cnt;
 }
-#endif
-
-#endif /* _OS_ARCH_ARM_H */

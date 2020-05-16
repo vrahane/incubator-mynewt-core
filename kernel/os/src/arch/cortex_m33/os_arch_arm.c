@@ -129,9 +129,9 @@ os_arch_save_sr(void)
 
 #if MCU_CRITICAL_BASEPRI
     isr_ctx = __get_BASEPRI();
-    __set_BASEPRI((MCU_CRITICAL_BASEPRI) << (8 - __NVIC_PRIO_BITS));
+    __TZ_set_BASEPRI_NS((MCU_CRITICAL_BASEPRI) << (8 - __NVIC_PRIO_BITS));
 #else
-    isr_ctx = __get_PRIMASK() & 1;
+    isr_ctx = __TZ_get_PRIMASK_NS() & 1;
     __disable_irq();
 #endif
 
@@ -142,7 +142,7 @@ void
 os_arch_restore_sr(os_sr_t isr_ctx)
 {
 #if MCU_CRITICAL_BASEPRI
-    __set_BASEPRI(isr_ctx);
+    __TZ_set_BASEPRI_NS(isr_ctx);
 #else
     if (!isr_ctx) {
         __enable_irq();
@@ -156,9 +156,9 @@ os_arch_in_critical(void)
     int ret;
 
 #if MCU_CRITICAL_BASEPRI
-    ret = __get_BASEPRI() > 0;
+    ret = __TZ_get_BASEPRI_NS() > 0;
 #else
-    ret = __get_PRIMASK() & 1;
+    ret = __TZ_get_PRIMASK_NS() & 1;
 #endif
 
     return ret;
@@ -283,7 +283,7 @@ os_arch_start(void)
     os_sched_set_current_task(t);
 
     /* Adjust PSP so it looks like this task just took an exception */
-    __set_PSP((uint32_t)t->t_stackptr + offsetof(struct stack_frame, r0));
+    __TZ_set_PSP_NS((uint32_t)t->t_stackptr + offsetof(struct stack_frame, r0));
 
     /* Intitialize and start system clock timer */
     os_tick_init(OS_TICKS_PER_SEC, OS_TICK_PRIO);

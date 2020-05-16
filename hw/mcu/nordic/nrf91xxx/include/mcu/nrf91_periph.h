@@ -17,43 +17,17 @@
  * under the License.
  */
 
-#ifndef _OS_ARCH_ARM_H
-#define _OS_ARCH_ARM_H
-
-#include <stdint.h>
-#include "syscfg/syscfg.h"
-#include "mcu/cmsis_nvic.h"
-#include "mcu/cortex_m33.h"
+#ifndef H_NRF91_PERIPH_
+#define H_NRF91_PERIPH_
 
 #ifdef __cplusplus
-extern "C" {
+ extern "C" {
 #endif
 
-/* CPU status register */
-typedef uint32_t os_sr_t;
-
-/* Stack element */
-typedef uint32_t os_stack_t;
-
-/* Stack sizes for common OS tasks */
-#define OS_SANITY_STACK_SIZE (64)
-#if MYNEWT_VAL(OS_SYSVIEW)
-#define OS_IDLE_STACK_SIZE (80)
-#else
-#define OS_IDLE_STACK_SIZE (64)
-#endif
-
-static inline int
-os_arch_in_isr(void)
-{
-    return (SCB_NS->ICSR & SCB_ICSR_VECTACTIVE_Msk) != 0;
-}
-
-/* Include common arch definitions and APIs */
-#include "os/arch/common.h"
+void nrf91_periph_create(void);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* _OS_ARCH_ARM_H */
+#endif  /* H_NRF91_PERIPH_ */

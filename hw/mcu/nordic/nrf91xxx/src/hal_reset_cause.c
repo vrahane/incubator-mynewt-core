@@ -17,43 +17,31 @@
  * under the License.
  */
 
-#ifndef _OS_ARCH_ARM_H
-#define _OS_ARCH_ARM_H
+#include <nrf.h>
+#include "hal/hal_system.h"
 
-#include <stdint.h>
-#include "syscfg/syscfg.h"
-#include "mcu/cmsis_nvic.h"
-#include "mcu/cortex_m33.h"
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-/* CPU status register */
-typedef uint32_t os_sr_t;
-
-/* Stack element */
-typedef uint32_t os_stack_t;
-
-/* Stack sizes for common OS tasks */
-#define OS_SANITY_STACK_SIZE (64)
-#if MYNEWT_VAL(OS_SYSVIEW)
-#define OS_IDLE_STACK_SIZE (80)
-#else
-#define OS_IDLE_STACK_SIZE (64)
-#endif
-
-static inline int
-os_arch_in_isr(void)
+enum hal_reset_reason
+hal_reset_cause(void)
 {
-    return (SCB_NS->ICSR & SCB_ICSR_VECTACTIVE_Msk) != 0;
+    static enum hal_reset_reason reason;
+    uint32_t reg;
+
+    if (reason) {
+        return reason;
+    }
+    reg = NRF_POWER_S->RESETREAS;
+
+    if (reg & (POWER_RESETREAS_DOG_Msk | POWER_RESETREAS_LOCKUP_Msk)) {
+        reason = HAL_RESET_WATCHDOG;
+    } else if (reg & POWER_RESETREAS_SREQ_Msk) {
+        reason = HAL_RESET_SOFT;
+    } else if (reg & POWER_RESETREAS_RESETPIN_Msk) {
+        reason = HAL_RESET_PIN;
+    } else if (reg & POWER_RESETREAS_OFF_Msk) {
+        reason = HAL_RESET_SYS_OFF_INT;
+    } else {
+        reason = HAL_RESET_POR; /* could also be brownout */
+    }
+    NRF_POWER_S->RESETREAS = reg;
+    return reason;
 }
-
-/* Include common arch definitions and APIs */
-#include "os/arch/common.h"
-
-#ifdef __cplusplus
-}
-#endif
-
-#endif /* _OS_ARCH_ARM_H */

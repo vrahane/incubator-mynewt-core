@@ -17,43 +17,34 @@
  * under the License.
  */
 
-#ifndef _OS_ARCH_ARM_H
-#define _OS_ARCH_ARM_H
-
-#include <stdint.h>
-#include "syscfg/syscfg.h"
-#include "mcu/cmsis_nvic.h"
-#include "mcu/cortex_m33.h"
+#ifndef H_NRF91_CLOCK_
+#define H_NRF91_CLOCK_
 
 #ifdef __cplusplus
-extern "C" {
+ extern "C" {
 #endif
 
-/* CPU status register */
-typedef uint32_t os_sr_t;
+/**
+ * Request HFXO clock be turned on. Note that each request must have a
+ * corresponding release.
+ *
+ * @return int 0: hfxo was already on. 1: hfxo was turned on.
+ */
+int nrf91_clock_hfxo_request(void);
 
-/* Stack element */
-typedef uint32_t os_stack_t;
-
-/* Stack sizes for common OS tasks */
-#define OS_SANITY_STACK_SIZE (64)
-#if MYNEWT_VAL(OS_SYSVIEW)
-#define OS_IDLE_STACK_SIZE (80)
-#else
-#define OS_IDLE_STACK_SIZE (64)
-#endif
-
-static inline int
-os_arch_in_isr(void)
-{
-    return (SCB_NS->ICSR & SCB_ICSR_VECTACTIVE_Msk) != 0;
-}
-
-/* Include common arch definitions and APIs */
-#include "os/arch/common.h"
+/**
+ * Release the HFXO; caller no longer needs the HFXO to be turned on. Each call
+ * to release should have been preceeded by a corresponding call to request the
+ * HFXO
+ *
+ *
+ * @return int 0: HFXO not stopped by this call (others using it) 1: HFXO
+ *         stopped.
+ */
+int nrf91_clock_hfxo_release(void);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* _OS_ARCH_ARM_H */
+#endif  /* H_NRF91_CLOCK_ */

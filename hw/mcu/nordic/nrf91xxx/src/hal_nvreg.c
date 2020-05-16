@@ -17,43 +17,48 @@
  * under the License.
  */
 
-#ifndef _OS_ARCH_ARM_H
-#define _OS_ARCH_ARM_H
+#include <mcu/cortex_m33.h>
+#include "hal/hal_nvreg.h"
+#include "nrf.h"
+#include "nrfx_config_nrf9160.h"
 
-#include <stdint.h>
-#include "syscfg/syscfg.h"
-#include "mcu/cmsis_nvic.h"
-#include "mcu/cortex_m33.h"
+/* There are two GPREGRET registers on the NRF91 */
+#define HAL_NVREG_MAX (2)
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+/* GPREGRET registers only save the 8 lsbits */
+#define HAL_NVREG_WIDTH_BYTES (1)
 
-/* CPU status register */
-typedef uint32_t os_sr_t;
+static volatile uint32_t *regs[HAL_NVREG_MAX] = {
+    &NRF_POWER->GPREGRET[0],
+    &NRF_POWER->GPREGRET[1]
+};
 
-/* Stack element */
-typedef uint32_t os_stack_t;
-
-/* Stack sizes for common OS tasks */
-#define OS_SANITY_STACK_SIZE (64)
-#if MYNEWT_VAL(OS_SYSVIEW)
-#define OS_IDLE_STACK_SIZE (80)
-#else
-#define OS_IDLE_STACK_SIZE (64)
-#endif
-
-static inline int
-os_arch_in_isr(void)
+void
+hal_nvreg_write(unsigned int reg, uint32_t val)
 {
-    return (SCB_NS->ICSR & SCB_ICSR_VECTACTIVE_Msk) != 0;
+    if(reg < HAL_NVREG_MAX) {
+        *regs[reg] = val;
+    }
 }
 
-/* Include common arch definitions and APIs */
-#include "os/arch/common.h"
+uint32_t
+hal_nvreg_read(unsigned int reg)
+{
+    uint32_t val = 0;
 
-#ifdef __cplusplus
+    if(reg < HAL_NVREG_MAX) {
+        val = *regs[reg];
+    }
+
+    return val;
 }
-#endif
 
-#endif /* _OS_ARCH_ARM_H */
+unsigned int hal_nvreg_get_num_regs(void)
+{
+    return HAL_NVREG_MAX;
+}
+
+unsigned int hal_nvreg_get_reg_width(void)
+{
+    return HAL_NVREG_WIDTH_BYTES;
+}
