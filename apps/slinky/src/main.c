@@ -25,20 +25,20 @@
 #include <shell/shell.h>
 #include <log/log.h>
 #include <stats/stats.h>
-//#include <config/config.h>
+#include <config/config.h>
 #include "flash_map/flash_map.h"
 #include <hal/hal_system.h>
-//#if MYNEWT_VAL(SPLIT_LOADER)
-//#include "split/split.h"
-//#endif
-//#include <bootutil/image.h>
-//#include <bootutil/bootutil.h>
+#if MYNEWT_VAL(SPLIT_LOADER)
+#include "split/split.h"
+#endif
+#include <bootutil/image.h>
+#include <bootutil/bootutil.h>
 #include <assert.h>
 #include <string.h>
-//#include <reboot/log_reboot.h>
-//#include <id/id.h>
+#include <reboot/log_reboot.h>
+#include <id/id.h>
 #include "modlog/modlog.h"
-//#include <imgmgr/imgmgr.h>
+#include <imgmgr/imgmgr.h>
 
 #ifdef ARCH_sim
 #include <mcu/mcu_sim.h>
@@ -76,7 +76,6 @@ static STATS_NAME_START(gpio_stats)
 STATS_NAME(gpio_stats, toggles)
 STATS_NAME_END(gpio_stats)
 
-#if 0
 static char *test_conf_get(int argc, char **argv, char *val, int max_len);
 static int test_conf_set(int argc, char **argv, char *val);
 static int test_conf_commit(void);
@@ -94,10 +93,9 @@ static struct conf_handler test_conf_handler = {
 static uint8_t test8;
 static uint8_t test8_shadow;
 static char test_str[32];
-#endif
 static uint32_t cbmem_buf[MAX_CBMEM_BUF];
 static struct cbmem cbmem;
-#if 0
+
 static char *
 test_conf_get(int argc, char **argv, char *buf, int max_len)
 {
@@ -142,19 +140,18 @@ test_conf_export(void (*func)(char *name, char *val), enum conf_export_tgt tgt)
     func("test/str", test_str);
     return 0;
 }
-#endif
+
 static void
 task1_handler(void *arg)
 {
     struct os_task *t;
     int prev_pin_state, curr_pin_state;
-#if 0
     struct image_version ver;
-#endif
+
     /* Set the led pin for the E407 devboard */
     g_led_pin = LED_BLINK_PIN;
     hal_gpio_init_out(g_led_pin, 1);
-#if 0
+
     if (imgr_my_version(&ver) == 0) {
         console_printf("\nSlinky %u.%u.%u.%u\n",
           ver.iv_major, ver.iv_minor, ver.iv_revision,
@@ -162,7 +159,6 @@ task1_handler(void *arg)
     } else {
         console_printf("\nSlinky\n");
     }
-#endif
 
     while (1) {
         t = os_sched_get_current_task();
@@ -251,10 +247,10 @@ main(int argc, char **argv)
 #endif
 
     sysinit();
-#if 0
+
     rc = conf_register(&test_conf_handler);
     assert(rc == 0);
-#endif
+
     cbmem_init(&cbmem, cbmem_buf, MAX_CBMEM_BUF);
     log_register("log", &my_log, &log_cbmem_handler, &cbmem, LOG_SYSLEVEL);
 
@@ -267,15 +263,15 @@ main(int argc, char **argv)
                STATS_NAME_INIT_PARMS(gpio_stats));
 
     stats_register("gpio_toggle", STATS_HDR(g_stats_gpio_toggle));
-#if 0
+
     reboot_start(hal_reset_cause());
-#endif
+
     init_tasks();
 
     /* If this app is acting as the loader in a split image setup, jump into
      * the second stage application instead of starting the OS.
      */
-#if MYNEWT_VAL(SPLIT_LOADER) && 0
+#if MYNEWT_VAL(SPLIT_LOADER)
     {
         void *entry;
         rc = split_app_go(&entry, true);
