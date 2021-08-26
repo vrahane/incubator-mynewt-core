@@ -895,24 +895,13 @@ err:
 int
 hal_spi_set_txrx_cb(int spi_num, hal_spi_txrx_cb txrx_cb, void *arg)
 {
-    int rc;
-    NRF_SPIM_Type *spim;
     struct nrf5340_hal_spi *spi;
+    int rc = 0;
 
     NRF5340_HAL_SPI_RESOLVE(spi_num, spi);
 
-    /*
-     * This looks odd, but the ENABLE register is in the same location for
-     * SPIM and SPIS
-     */
-    spim = spi->nhs_spi.spim;
-    if (spim->ENABLE != 0) {
-        rc = -1;
-    } else {
-        spi->txrx_cb_func = txrx_cb;
-        spi->txrx_cb_arg = arg;
-        rc = 0;
-    }
+    spi->txrx_cb_func = txrx_cb;
+    spi->txrx_cb_arg = arg;
 
 err:
     return rc;

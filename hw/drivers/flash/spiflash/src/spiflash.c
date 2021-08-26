@@ -53,6 +53,31 @@
 #error SPIFLASH_BAUDRATE must be set to the correct value in bsp syscfg.yml
 #endif
 
+#if !MYNEWT_VAL(BUS_DRIVER_PRESENT)
+static volatile uint8_t spi_trx_done = 0;
+
+void
+spi_txrx_cb(void *arg, int len)
+{
+    uint8_t *done = arg;
+    *done = 1;
+}
+
+static int
+spi_txrx(int spi_num, void *txbuf, void *rxbuf, int num_bytes)
+{
+    int rc = 0;
+    spi_trx_done = 0;
+    rc = hal_spi_set_txrx_cb(spi_num, spi_txrx_cb, (void *)&spi_trx_done);
+    if (rc) {
+        return rc;
+    }
+    rc = hal_spi_txrx_noblock(spi_num, txbuf, rxbuf, num_bytes);
+    while(!spi_trx_done);
+    return rc;
+}
+#endif
+
 static void spiflash_release_power_down_macronix(struct spiflash_dev *dev) __attribute__((unused));
 static void spiflash_release_power_down_generic(struct spiflash_dev *dev) __attribute__((unused));
 
@@ -664,6 +689,20 @@ struct spiflash_dev spiflash_dev = {
     .supported_chips = supported_chips,
     .characteristics = &spiflash_characteristics,
     .flash_chip = NULL,
+    .die = {
+        /* Default die number is 0 */
+        .active = 0,
+        /* Die config, mainly address range */
+        .die_cfg[0] = (struct spiflash_die_cfg) {
+            .start_addr = MYNEWT_VAL(SPIFLASH_DIE_0_START_ADDR),
+            .end_addr = MYNEWT_VAL(SPIFLASH_DIE_0_END_ADDR)
+        },
+        .die_cfg[1] = (struct spiflash_die_cfg) {
+            .start_addr = MYNEWT_VAL(SPIFLASH_DIE_1_START_ADDR),
+            .end_addr = MYNEWT_VAL(SPIFLASH_DIE_1_END_ADDR)
+        }
+    },
+    .op_type = FLASH_OP_DEFAULT
 };
 
 static inline void spiflash_lock_no_apd(struct spiflash_dev *dev)
@@ -735,6 +774,156 @@ spiflash_cs_deactivate(struct spiflash_dev *dev)
 #endif
 }
 
+static void
+spiflash_delay_us(uint32_t usecs)
+{
+#if MYNEWT_VAL(OS_SCHEDULING)
+    uint32_t ticks = os_time_ms_to_ticks32(usecs / 1000);
+    if (ticks > 1) {
+        os_time_delay(ticks);
+    } else {
+        os_cputime_delay_usecs(usecs);
+    }
+#else
+    os_cputime_delay_usecs(usecs);
+#endif
+}
+
+static int
+spiflash_die_select(struct spiflash_dev *dev, uint8_t die_id)
+{
+    if (die_id > MYNEWT_VAL(SPIFLASH_MAX_DIE) - 1) {
+        return SYS_EINVAL;
+    }
+    int rc;
+    uint8_t cmd[2] = {MYNEWT_VAL(SPIFLASH_DIE_SELECT_CMD), die_id};
+
+#if MYNEWT_VAL(BUS_DRIVER_PRESENT)
+    rc = bus_node_simple_write((struct os_dev *)&dev->dev, cmd, sizeof(cmd));
+#else
+    spiflash_cs_activate(dev);
+    rc = spi_txrx(dev->spi_num, cmd, NULL, sizeof(cmd));
+    spiflash_cs_deactivate(dev);
+#endif
+    return rc;
+}
+
+uint8_t
+spiflash_read_status(struct spiflash_dev *dev)
+{
+    uint8_t val = 0;
+    uint8_t cmd[2] = {SPIFLASH_READ_STATUS_REGISTER, 0xFF};
+
+#if MYNEWT_VAL(BUS_DRIVER_PRESENT)
+    bus_node_simple_write_read_transact((struct os_dev *)&dev->dev,
+        &cmd, 1, &val, 1);
+#else
+    int rc;
+    spiflash_lock(dev);
+
+    spiflash_cs_activate(dev);
+    rc = spi_txrx(dev->spi_num, cmd, NULL, 1);
+    if (!rc) {
+        rc = spi_txrx(dev->spi_num, cmd + 1, cmd + 1, 1);
+        if (!rc) {
+            val = cmd[1];
+        }
+    }
+    spiflash_cs_deactivate(dev);
+
+    spiflash_unlock(dev);
+#endif
+
+    return val;
+}
+
+bool
+spiflash_device_ready(struct spiflash_dev *dev)
+{
+    bool ready = true;
+    int rc = 0;
+    if (MYNEWT_VAL(SPIFLASH_MAX_DIE) == 1) {
+        dev->ready = !(spiflash_read_status(dev) & SPIFLASH_STATUS_BUSY);
+    } else {
+        switch(dev->op_type) {
+            case FLASH_OP_DEFAULT:
+            case FLASH_OP_READ:
+                /* Only check active die. Must be selected by application */
+                dev->ready = !(spiflash_read_status(dev) & SPIFLASH_STATUS_BUSY);
+            break;
+            /* These operations require status check on all dies */
+            case FLASH_OP_WRITE:
+            case FLASH_OP_CHIPERASE:
+            case FLASH_OP_PD:
+                /* Assume device is not ready */
+                dev->ready = false;
+                /* Store active die */
+                uint8_t active_die = dev->die.active;
+                for (int i = 0; i < MYNEWT_VAL(SPIFLASH_MAX_DIE); ++i) {
+                    rc = spiflash_die_select(dev, i);
+                    if (!rc) {
+                        ready &= !(spiflash_read_status(dev) & SPIFLASH_STATUS_BUSY);
+                    }
+                }
+                dev->ready = ready;
+                rc = spiflash_die_select(dev, active_die);
+                if (rc) {
+                    dev->ready = false;
+                }
+            break;
+        }
+    }
+
+    return dev->ready;
+}
+
+static int
+spiflash_wait_ready_till(struct spiflash_dev *dev, uint32_t timeout_us,
+    uint32_t step_us)
+{
+    int rc = -1;
+    uint32_t limit;
+
+    /* Device is ready, no checks required */
+    if (dev->ready) {
+        return 0;
+    }
+
+    if (step_us < MYNEWT_VAL(SPIFLASH_READ_STATUS_INTERVAL)) {
+        step_us = MYNEWT_VAL(SPIFLASH_READ_STATUS_INTERVAL);
+    } else if (step_us > 1000000) {
+        /* Read status once per second max */
+        step_us = 1000000;
+    }
+
+    spiflash_lock(dev);
+
+    limit = os_cputime_get32() + os_cputime_usecs_to_ticks(timeout_us);
+    do {
+        if (spiflash_device_ready(dev)) {
+            rc = 0;
+            break;
+        }
+        spiflash_delay_us(step_us);
+    } while (CPUTIME_LT(os_cputime_get32(), limit));
+
+    spiflash_unlock(dev);
+
+    return rc;
+}
+
+int
+spiflash_wait_ready(struct spiflash_dev *dev, uint32_t timeout_ms)
+{
+    /*
+     * Timeout is in ms, check status register 100 times in this time.
+     * If it would be shorter time than SPIFLASH_READ_STATUS_INTERVAL
+     * number of timer status register is checked will be smaler.
+     */
+    return spiflash_wait_ready_till(dev, timeout_ms * 1000, timeout_ms * 10);
+}
+
+
 void
 spiflash_power_down(struct spiflash_dev *dev)
 {
@@ -742,12 +931,18 @@ spiflash_power_down(struct spiflash_dev *dev)
 
     spiflash_lock_no_apd(dev);
 
+    /* Set operation type for dual die status check */
+    dev->op_type = FLASH_OP_PD;
+    if (spiflash_wait_ready(dev, 100) != 0) {
+        goto err;
+    }
+
 #if MYNEWT_VAL(BUS_DRIVER_PRESENT)
     bus_node_simple_write((struct os_dev *)&dev->dev, cmd, sizeof(cmd));
 #else
     spiflash_cs_activate(dev);
 
-    hal_spi_txrx(dev->spi_num, cmd, cmd, sizeof cmd);
+    spi_txrx(dev->spi_num, cmd, NULL, sizeof cmd);
 
     spiflash_cs_deactivate(dev);
 #endif
@@ -756,7 +951,7 @@ spiflash_power_down(struct spiflash_dev *dev)
     dev->pd_active = true;
 #endif
     dev->ready = false;
-
+err:
     spiflash_unlock_no_apd(dev);
 }
 
@@ -784,7 +979,7 @@ spiflash_release_power_down_generic(struct spiflash_dev *dev)
 #else
     spiflash_cs_activate(dev);
 
-    hal_spi_txrx(dev->spi_num, cmd, cmd, sizeof cmd);
+    spi_txrx(dev->spi_num, cmd, NULL, sizeof cmd);
 
     spiflash_cs_deactivate(dev);
 #endif
@@ -853,7 +1048,8 @@ uint8_t
 spiflash_read_jedec_id(struct spiflash_dev *dev,
         uint8_t *manufacturer, uint8_t *memory_type, uint8_t *capacity)
 {
-    uint8_t cmd[4] = { SPIFLASH_READ_JEDEC_ID, 0, 0, 0 };
+    uint8_t cmd[4] = { SPIFLASH_READ_JEDEC_ID, 0xFF, 0xFF, 0xFF };
+    int rc = 0;
 
     spiflash_lock(dev);
 
@@ -863,7 +1059,11 @@ spiflash_read_jedec_id(struct spiflash_dev *dev,
 #else
     spiflash_cs_activate(dev);
 
-    hal_spi_txrx(dev->spi_num, cmd, cmd, sizeof cmd);
+    rc = spi_txrx(dev->spi_num, cmd, NULL, 1);
+    if (!rc) {
+        /* Tx buf does not matter, for simplicity pass read buffer */
+        rc = spi_txrx(dev->spi_num, cmd + 1, cmd + 1, 3);
+    }
 
     spiflash_cs_deactivate(dev);
 #endif
@@ -882,143 +1082,125 @@ spiflash_read_jedec_id(struct spiflash_dev *dev,
 
     spiflash_unlock(dev);
 
-    return 0;
+    return rc;
 }
 
-uint8_t
-spiflash_read_status(struct spiflash_dev *dev)
+int
+spiflash_enable_4byte_addressing(struct spiflash_dev *dev)
 {
-    uint8_t val;
-    const uint8_t cmd = SPIFLASH_READ_STATUS_REGISTER;
-
-#if MYNEWT_VAL(BUS_DRIVER_PRESENT)
-    bus_node_simple_write_read_transact((struct os_dev *)&dev->dev,
-        &cmd, 1, &val, 1);
-#else
-    spiflash_lock(dev);
-
-    spiflash_cs_activate(dev);
-
-    hal_spi_tx_val(dev->spi_num, cmd);
-    val = hal_spi_tx_val(dev->spi_num, 0xFF);
-
-    spiflash_cs_deactivate(dev);
-
-    spiflash_unlock(dev);
-#endif
-
-    return val;
-}
-
-static void
-spiflash_delay_us(uint32_t usecs)
-{
-#if MYNEWT_VAL(OS_SCHEDULING)
-    uint32_t ticks = os_time_ms_to_ticks32(usecs / 1000);
-    if (ticks > 1) {
-        os_time_delay(ticks);
-    } else {
-        os_cputime_delay_usecs(usecs);
-    }
-#else
-    os_cputime_delay_usecs(usecs);
-#endif
-}
-
-bool
-spiflash_device_ready(struct spiflash_dev *dev)
-{
-    dev->ready = !(spiflash_read_status(dev) & SPIFLASH_STATUS_BUSY);
-
-    return dev->ready;
-}
-
-static int
-spiflash_wait_ready_till(struct spiflash_dev *dev, uint32_t timeout_us,
-    uint32_t step_us)
-{
-    int rc = -1;
-    uint32_t limit;
-
-    if (dev->ready) {
+    /* Proceed only if command is non-zero */
+    if (!MYNEWT_VAL(SPIFLASH_ADDRESS_4BYTE_CMD)) {
         return 0;
     }
 
-    if (step_us < MYNEWT_VAL(SPIFLASH_READ_STATUS_INTERVAL)) {
-        step_us = MYNEWT_VAL(SPIFLASH_READ_STATUS_INTERVAL);
-    } else if (step_us > 1000000) {
-        /* Read status once per second max */
-        step_us = 1000000;
-    }
+    int rc;
+    uint8_t cmd = MYNEWT_VAL(SPIFLASH_ADDRESS_4BYTE_CMD);
 
     spiflash_lock(dev);
 
-    limit = os_cputime_get32() + os_cputime_usecs_to_ticks(timeout_us);
-    do {
-        if (spiflash_device_ready(dev)) {
-            rc = 0;
-            break;
-        }
-        spiflash_delay_us(step_us);
-    } while (CPUTIME_LT(os_cputime_get32(), limit));
+    if (spiflash_wait_ready(dev, 1000) != 0) {
+        rc = -1;
+        goto err;
+    }
 
+#if MYNEWT_VAL(BUS_DRIVER_PRESENT)
+    rc = bus_node_simple_write((struct os_dev *)&dev->dev, &cmd, sizeof(cmd));
+#else
+    spiflash_cs_activate(dev);
+    rc = spi_txrx(dev->spi_num, &cmd, NULL, sizeof cmd);
+    spiflash_cs_deactivate(dev);
+#endif
+
+err:
     spiflash_unlock(dev);
 
     return rc;
 }
 
 int
-spiflash_wait_ready(struct spiflash_dev *dev, uint32_t timeout_ms)
-{
-    /*
-     * Timeout is in ms, check status register 100 times in this time.
-     * If it would be shorter time than SPIFLASH_READ_STATUS_INTERVAL
-     * number of timer status register is checked will be smaler.
-     */
-    return spiflash_wait_ready_till(dev, timeout_ms * 1000, timeout_ms * 10);
-}
-
-int
 spiflash_write_enable(struct spiflash_dev *dev)
 {
     uint8_t cmd = SPIFLASH_WRITE_ENABLE;
+    int rc = 0;
+
     spiflash_lock(dev);
 
 #if MYNEWT_VAL(BUS_DRIVER_PRESENT)
-    bus_node_simple_write((struct os_dev *)&dev->dev, &cmd, 1);
+    rc = bus_node_simple_write((struct os_dev *)&dev->dev, &cmd, 1);
 #else
     spiflash_cs_activate(dev);
 
-    hal_spi_tx_val(dev->spi_num, cmd);
+    rc = spi_txrx(dev->spi_num, &cmd, NULL, sizeof cmd);
 
     spiflash_cs_deactivate(dev);
 #endif
 
     spiflash_unlock(dev);
 
-    return 0;
+    return rc;
+}
+
+static int
+spiflash_die_select_by_addr(struct spiflash_dev *dev, uint32_t addr)
+{
+    int i;
+    int err = SYS_EINVAL;
+
+    for (i = 0; i < MYNEWT_VAL(SPIFLASH_MAX_DIE); i++) {
+        if (!dev->die.die_cfg[i].start_addr &&
+            !dev->die.die_cfg[i].end_addr) {
+            err = SYS_EOK;
+            break;
+        }
+        if (addr >= dev->die.die_cfg[i].start_addr &&
+            addr < dev->die.die_cfg[i].end_addr) {
+            err = spiflash_die_select(dev, i);
+            if (err) {
+                break;
+            }
+            dev->die.active = i;
+            break;
+        }
+    }
+    return err;
 }
 
 static int
 hal_spiflash_read(const struct hal_flash *hal_flash_dev, uint32_t addr, void *buf,
                   uint32_t len)
 {
-    int err = 0;
+    int i;
+    (void)i;
+    uint32_t tmp_addr = addr;
+    int rc = 0;
 #if MYNEWT_VAL(SPIFLASH_CACHE_SIZE)
     uint32_t cached_size;
     uint8_t *user_buf;
     uint32_t left;
 #endif
-    uint8_t cmd[] = { SPIFLASH_READ,
-        (uint8_t)(addr >> 16), (uint8_t)(addr >> 8), (uint8_t)(addr) };
+    uint8_t cmd[1 + MYNEWT_VAL(SPIFLASH_NUM_ADDRESS_BYTES)] = { SPIFLASH_READ };
+
     struct spiflash_dev *dev;
 
     dev = (struct spiflash_dev *)hal_flash_dev;
 
+    i = MYNEWT_VAL(SPIFLASH_NUM_ADDRESS_BYTES);
+    while (i) {
+        cmd[i] = (uint8_t)tmp_addr;
+        tmp_addr >>= 8;
+        --i;
+    }
+
     spiflash_lock(dev);
 
-    err = spiflash_wait_ready(dev, 100);
-    if (!err) {
+    dev->op_type = FLASH_OP_READ;
+    rc = spiflash_die_select_by_addr(dev, addr);
+    if (rc) {
+        goto done;
+    }
+
+    rc = spiflash_wait_ready(dev, 100);
+    if (!rc) {
 #if MYNEWT_VAL(SPIFLASH_CACHE_SIZE)
         if ((dev->cached_addr <= addr) &&
             (addr < dev->cached_addr + MYNEWT_VAL(SPIFLASH_CACHE_SIZE))) {
@@ -1036,9 +1218,12 @@ hal_spiflash_read(const struct hal_flash *hal_flash_dev, uint32_t addr, void *bu
                 len -= cached_size;
                 buf = (uint8_t *)buf + cached_size;
                 addr += cached_size;
-                cmd[1] = (uint8_t)(addr >> 16);
-                cmd[2] = (uint8_t)(addr >> 8);
-                cmd[3] = (uint8_t)(addr);
+                i = dev->characteristics->address_bytes;
+                while (i) {
+                    cmd[i] = (uint8_t)addr;
+                    addr >>= 8;
+                    --i;
+                }
             }
         }
         left = len;
@@ -1052,22 +1237,32 @@ hal_spiflash_read(const struct hal_flash *hal_flash_dev, uint32_t addr, void *bu
             buf = dev->cache;
         }
 #endif
+
         if (len > 0) {
+            rc = spiflash_die_select_by_addr(dev, addr);
+            if (rc) {
+                goto done;
+            }
 #if MYNEWT_VAL(BUS_DRIVER_PRESENT)
-            bus_node_simple_write_read_transact((struct os_dev *)&dev->dev,
-                &cmd, 4, buf, len);
+            rc = bus_node_simple_write_read_transact((struct os_dev *)&dev->dev,
+                cmd, sizeof(cmd), buf, len);
 #else
             spiflash_cs_activate(dev);
 
             /* Send command + address */
-            hal_spi_txrx(dev->spi_num, cmd, NULL, sizeof cmd);
-            /* For security mostly, do not output random data, fill it with FF */
-            memset(buf, 0xFF, len);
-            /* Tx buf does not matter, for simplicity pass read buffer */
-            hal_spi_txrx(dev->spi_num, buf, buf, len);
+            rc = spi_txrx(dev->spi_num, cmd, NULL, sizeof cmd);
+            if (!rc) {
+                /* For security mostly, do not output random data, fill it with FF */
+                memset(buf, 0xFF, len);
+                /* Tx buf does not matter, for simplicity pass read buffer */
+                rc = spi_txrx(dev->spi_num, buf, buf, len);
+            }
 
             spiflash_cs_deactivate(dev);
 #endif
+            if (rc) {
+                goto done;
+            }
 #if MYNEWT_VAL(SPIFLASH_CACHE_SIZE)
             /* If buffer was too small, cache was used for reading */
             if (left < MYNEWT_VAL(SPIFLASH_CACHE_SIZE)) {
@@ -1084,27 +1279,36 @@ hal_spiflash_read(const struct hal_flash *hal_flash_dev, uint32_t addr, void *bu
         }
     }
 
+done:
     spiflash_unlock(dev);
 
-    return 0;
+    return rc;
 }
 
 static int
 hal_spiflash_write(const struct hal_flash *hal_flash_dev, uint32_t addr,
         const void *buf, uint32_t len)
 {
-    uint8_t cmd[4] = { SPIFLASH_PAGE_PROGRAM };
+    uint8_t cmd[1 + MYNEWT_VAL(SPIFLASH_NUM_ADDRESS_BYTES)] = { SPIFLASH_PAGE_PROGRAM };
     const uint8_t *u8buf = buf;
     struct spiflash_dev *dev = (struct spiflash_dev *)hal_flash_dev;
     uint32_t page_limit;
     uint32_t to_write;
     uint32_t pp_time_typical;
     uint32_t pp_time_maximum;
-    int rc = 0;
+    int i, rc = 0;
 
     u8buf = (uint8_t *)buf;
 
     spiflash_lock(dev);
+
+    /* Set operation type for dual die status check */
+    rc = spiflash_die_select_by_addr(dev, addr);
+    if (rc) {
+        goto err;
+    }
+
+    dev->op_type = FLASH_OP_WRITE;
 
     if (spiflash_wait_ready(dev, 100) != 0) {
         rc = -1;
@@ -1124,9 +1328,12 @@ hal_spiflash_write(const struct hal_flash *hal_flash_dev, uint32_t addr,
     while (len) {
         spiflash_write_enable(dev);
 
-        cmd[1] = (uint8_t)(addr >> 16);
-        cmd[2] = (uint8_t)(addr >> 8);
-        cmd[3] = (uint8_t)(addr);
+        i = MYNEWT_VAL(SPIFLASH_NUM_ADDRESS_BYTES);
+        while (i) {
+            cmd[i] = (uint8_t)addr;
+            addr >>= 8;
+            --i;
+        }
 
         page_limit = (addr & ~(dev->page_size - 1)) + dev->page_size;
         to_write = page_limit - addr > len ? len :  page_limit - addr;
@@ -1135,14 +1342,19 @@ hal_spiflash_write(const struct hal_flash *hal_flash_dev, uint32_t addr,
         bus_node_lock((struct os_dev *)&dev->dev,
             BUS_NODE_LOCK_DEFAULT_TIMEOUT);
         bus_node_write((struct os_dev *)&dev->dev,
-            cmd, 4, BUS_NODE_LOCK_DEFAULT_TIMEOUT, BUS_F_NOSTOP);
+            cmd, sizeof(cmd), BUS_NODE_LOCK_DEFAULT_TIMEOUT, BUS_F_NOSTOP);
         bus_node_simple_write((struct os_dev *)&dev->dev, u8buf, to_write);
         bus_node_unlock((struct os_dev *)&dev->dev);
 #else
         spiflash_cs_activate(dev);
-        hal_spi_txrx(dev->spi_num, cmd, NULL, sizeof cmd);
-        hal_spi_txrx(dev->spi_num, (void *)u8buf, NULL, to_write);
+        rc = spi_txrx(dev->spi_num, cmd, NULL, sizeof cmd);
+        if (!rc) {
+            rc = spi_txrx(dev->spi_num, (void *)u8buf, NULL, to_write);
+        }
         spiflash_cs_deactivate(dev);
+        if (rc) {
+            break;
+        }
 #endif
         /* Now we know that device is not ready */
         dev->ready = false;
@@ -1194,25 +1406,34 @@ spiflash_execute_erase(struct spiflash_dev *dev, const uint8_t *buf,
 #if MYNEWT_VAL(SPIFLASH_CACHE_SIZE)
     dev->cached_addr = 0xFFFFFFFF;
 #endif
-
-    if (spiflash_wait_ready(dev, 100) != 0) {
+    if (buf[0] == SPIFLASH_CHIP_ERASE || SPIFLASH_SECTOR_ERASE) {
+        dev->op_type = FLASH_OP_CHIPERASE;
+    } else {
+        dev->op_type = FLASH_OP_DEFAULT;
+    }
+    dev->ready = false;
+    if (spiflash_wait_ready(dev, 1000) != 0) {
         rc = -1;
         goto err;
     }
 
-    spiflash_write_enable(dev);
+    rc = spiflash_write_enable(dev);
+    if (rc) {
+        goto err;
+    }
 
-    spiflash_read_status(dev);
-
-#if MYNEWT_VAL(BUS_DRIVER_PRESENT)
-    bus_node_simple_write((struct os_dev *)&dev->dev, buf, (uint16_t)size);
+ #if MYNEWT_VAL(BUS_DRIVER_PRESENT)
+    rc = bus_node_simple_write((struct os_dev *)&dev->dev, buf, (uint16_t)size);
 #else
     spiflash_cs_activate(dev);
 
-    hal_spi_txrx(dev->spi_num, (void *)buf, NULL, size);
+    rc = spi_txrx(dev->spi_num, (void *)buf, NULL, size);
 
     spiflash_cs_deactivate(dev);
 #endif
+    if (rc) {
+        goto err;
+    }
     /* Now we know that device is not ready */
     dev->ready = false;
 
@@ -1250,8 +1471,20 @@ static int
 spiflash_erase_cmd(struct spiflash_dev *dev, uint8_t cmd, uint32_t addr,
                    const struct spiflash_time_spec *time_spec)
 {
-    uint8_t buf[4] = { cmd, (uint8_t)(addr >> 16U), (uint8_t)(addr >> 8U),
-                       (uint8_t)addr };
+    uint8_t i = MYNEWT_VAL(SPIFLASH_NUM_ADDRESS_BYTES);
+    uint8_t buf[1 + MYNEWT_VAL(SPIFLASH_NUM_ADDRESS_BYTES)] =  { cmd };
+    while (i) {
+        buf[i] = (uint8_t)addr;
+        addr >>= 8;
+        --i;
+    }
+    int rc;
+
+    rc = spiflash_die_select_by_addr(dev, addr);
+    if (rc) {
+        return rc;
+    }
+
     return spiflash_execute_erase(dev, buf, sizeof(buf), time_spec);
 
 }
@@ -1428,6 +1661,46 @@ err:
     return rc;
 }
 
+int
+spiflash_sw_reset(struct spiflash_dev *dev)
+{
+    int rc;
+    uint8_t cmd[2] = { SPIFLASH_STATUS_RESET_ENABLE, SPIFLASH_STATUS_RESET };
+    spiflash_lock(dev);
+
+#if MYNEWT_VAL(BUS_DRIVER_PRESENT)
+    rc = bus_node_simple_write((struct os_dev *)&dev->dev, cmd, sizeof(cmd));
+#else
+    spiflash_cs_activate(dev);
+
+    rc = spi_txrx(dev->spi_num, (void *)cmd, NULL, sizeof(cmd));
+
+    spiflash_cs_deactivate(dev);
+#endif
+    if (rc) {
+        goto end;
+    }
+
+    /* Default die upon reset is 0 */
+    dev->die.active = 0;
+    /* Wait at least 30us for the device to reset */
+    os_cputime_delay_usecs(MYNEWT_VAL(SPIFLASH_TRST_TYPICAL));
+end:
+    spiflash_unlock(dev);
+
+    if (rc) {
+        return rc;
+    }
+
+    /* Re-enter 4byte addressing mode upon successful reset */
+    if (MYNEWT_VAL(SPIFLASH_NUM_ADDRESS_BYTES) == 4) {
+        /* Check if we need to enter 4 byte addressing mode */
+        rc = spiflash_enable_4byte_addressing(dev);
+    }
+
+    return rc;
+}
+
 static int
 hal_spiflash_init(const struct hal_flash *hal_flash_dev)
 {
@@ -1452,14 +1725,22 @@ hal_spiflash_init(const struct hal_flash *hal_flash_dev)
         return (rc);
     }
 
-    hal_spi_set_txrx_cb(dev->spi_num, NULL, NULL);
+    hal_spi_set_txrx_cb(dev->spi_num, spi_txrx_cb, (void *)&spi_trx_done);
     rc = hal_spi_enable(dev->spi_num);
     if (rc) {
         return (rc);
     }
 #endif
-    rc = spiflash_identify(dev);
 
+    rc = spiflash_identify(dev);
+    if (rc) {
+        return (rc);
+    }
+
+    if (MYNEWT_VAL(SPIFLASH_NUM_ADDRESS_BYTES) == 4) {
+        /* Check if we need to enter 4 byte addressing mode */
+        rc = spiflash_enable_4byte_addressing(dev);
+    }
     return rc;
 }
 

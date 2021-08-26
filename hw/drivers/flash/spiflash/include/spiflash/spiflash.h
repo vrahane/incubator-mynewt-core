@@ -42,6 +42,27 @@ struct spiflash_time_spec {
     uint32_t maximum;
 };
 
+/*
+ * Structure to hold dies and address range
+ */
+struct spiflash_die_cfg {
+    uint32_t start_addr;
+    uint32_t end_addr;
+};
+
+struct spiflash_die_spec {
+    uint8_t active;
+    struct spiflash_die_cfg die_cfg[MYNEWT_VAL(SPIFLASH_MAX_DIE)];
+};
+
+typedef enum {
+    FLASH_OP_DEFAULT,
+    FLASH_OP_READ,
+    FLASH_OP_WRITE,
+    FLASH_OP_CHIPERASE,
+    FLASH_OP_PD
+} flash_operation_t;
+
 struct spiflash_characteristics {
     struct spiflash_time_spec tse;  /* Sector erase time (4KB) */
     struct spiflash_time_spec tbe1; /* Block erase time (32KB) */
@@ -83,6 +104,8 @@ struct spiflash_dev {
     uint32_t cached_addr;
     uint8_t cache[MYNEWT_VAL(SPIFLASH_CACHE_SIZE)];
 #endif
+    struct spiflash_die_spec die; /* Die characteristics */
+    flash_operation_t op_type; /* Operation type for dual die chips only */
 };
 
 extern struct spiflash_dev spiflash_dev;
@@ -104,6 +127,9 @@ extern struct spiflash_dev spiflash_dev;
 
 #define SPIFLASH_STATUS_BUSY                0x01
 #define SPIFLASH_STATUS_WRITE_ENABLE        0x02
+
+#define SPIFLASH_STATUS_RESET_ENABLE        0x66
+#define SPIFLASH_STATUS_RESET               0x99
 
 /*
  * Flash identification bytes from 0x9F command
@@ -153,7 +179,8 @@ int spiflash_block_64k_erase(struct spiflash_dev *dev, uint32_t addr);
 #endif
 int spiflash_chip_erase(struct spiflash_dev *dev);
 int spiflash_erase(struct spiflash_dev *dev, uint32_t addr, uint32_t size);
-
+uint8_t spiflash_read_jedec_id(struct spiflash_dev *dev,
+        uint8_t *manufacturer, uint8_t *memory_type, uint8_t *capacity);
 #if MYNEWT_VAL(BUS_DRIVER_PRESENT)
 int spiflash_create_spi_dev(struct bus_spi_node *node, const char *name,
                             const struct bus_spi_node_cfg *spi_cfg);

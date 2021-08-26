@@ -82,45 +82,95 @@ syscfg.defs:
             Time between Read Status Register commands when waiting for flash
             to be ready (us)
         value: 10
+
     SPIFLASH_BLOCK_ERASE_32BK:
         description: Block erase 32KB command, set to 0 if flash does not support this command.
         value: 0x52
+
     SPIFLASH_BLOCK_ERASE_64BK:
         description: Block erase 64KB command, set to 0 if flash does not support this command.
         value: 0xD8
+
     SPIFLASH_TBP1_TYPICAL:
         description: 'Byte program time (first byte) (us)'
         value: 15
+
     SPIFLASH_TBP1_MAXIMUM:
         description: 'Maximum byte program time (first byte)  (us)'
         value: 30
+
     SPIFLASH_TPP_TYPICAL:
         description: 'Page program time (us)'
         value: 800
+
     SPIFLASH_TPP_MAXIMUM:
         description: 'Maximum page program time (us)'
         value: 3000
+
     SPIFLASH_TSE_TYPICAL:
         description: 'Sector erase time (4KB) (us)'
         value: 45000
+
     SPIFLASH_TSE_MAXIMUM:
         description: 'Maximum sector erase time (us)'
         value: 300000
+
     SPIFLASH_TBE1_TYPICAL:
         description: 'Block erase time (32KB) (us)'
         value: 120000
+
     SPIFLASH_TBE1_MAXIMUM:
         description: 'Maximum block erase time (32KB) (us)'
         value:  800000
+
     SPIFLASH_TBE2_TYPICAL:
         description: 'Block erase time (64KB) (us)'
         value: 150000
+
     SPIFLASH_TBE2_MAXIMUM:
         description: 'Maximum block erase time (64KB) (us)'
         value: 1000000
+
     SPIFLASH_TCE_TYPICAL:
         description: 'Chip erase time (us)'
         value: 2000000
+
     SPIFLASH_TCE_MAXIMUM:
         description: 'Maximum chip erase time (us)'
         value: 6000000
+
+    SPIFLASH_TRST_TYPICAL:
+        description: 'Reset time (us)'
+        value: 30
+
+    SPIFLASH_DIE_SELECT_CMD:
+        description: 'Command to select die number for chips with stacked dies'
+        value: 0xC2
+
+    SPIFLASH_MAX_DIE:
+        description: 'Total number of stacked dies on the chip'
+        value: 1
+
+    SPIFLASH_NUM_ADDRESS_BYTES:
+        description: 'Number of address bytes'
+        value: 3
+
+    SPIFLASH_ADDRESS_4BYTE_CMD:
+        description: 'Command for 4byte address mode'
+        value: 0
+
+    SPIFLASH_DIE_0_START_ADDR:
+        description: 'SPI flash die 0 start address'
+        value: 0x0000000
+
+    SPIFLASH_DIE_0_END_ADDR:
+        description: 'SPI flash die 0 end address'
+        value: 0x4000000
+
+    SPIFLASH_DIE_1_START_ADDR:
+        description: 'SPI flash die 1 start address'
+        value: 0
+
+    SPIFLASH_DIE_1_END_ADDR:
+        description: 'SPI flash die 1 end address'
+        value: 0

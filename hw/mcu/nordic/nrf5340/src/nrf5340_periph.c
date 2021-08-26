@@ -111,6 +111,7 @@ static const struct nrf5340_uart_cfg os_bsp_uart3_cfg = {
 #endif
 
 #if MYNEWT_VAL(SPI_0_MASTER)
+#if MYNEWT_VAL(BUS_DRIVER_PRESENT)
 static const struct bus_spi_dev_cfg spi0_cfg = {
     .spi_num = 0,
     .pin_sck = MYNEWT_VAL(SPI_0_MASTER_PIN_SCK),
@@ -118,6 +119,14 @@ static const struct bus_spi_dev_cfg spi0_cfg = {
     .pin_miso = MYNEWT_VAL(SPI_0_MASTER_PIN_MISO),
 };
 static struct bus_spi_hal_dev spi0_bus;
+#else
+static const struct nrf5340_hal_spi_cfg os_bsp_spi0m_cfg = {
+    .sck_pin      = MYNEWT_VAL(SPI_0_MASTER_PIN_SCK),
+    .mosi_pin     = MYNEWT_VAL(SPI_0_MASTER_PIN_MOSI),
+    .miso_pin     = MYNEWT_VAL(SPI_0_MASTER_PIN_MISO),
+    /* For SPI master, SS pin is controlled as regular GPIO */
+};
+#endif
 #endif
 #if MYNEWT_VAL(SPI_0_SLAVE)
 static const struct nrf5340_hal_spi_cfg os_bsp_spi0s_cfg = {
@@ -128,6 +137,7 @@ static const struct nrf5340_hal_spi_cfg os_bsp_spi0s_cfg = {
 };
 #endif
 #if MYNEWT_VAL(SPI_1_MASTER)
+#if MYNEWT_VAL(BUS_DRIVER_PRESENT)
 static const struct bus_spi_dev_cfg spi1_cfg = {
     .spi_num = 1,
     .pin_sck = MYNEWT_VAL(SPI_1_MASTER_PIN_SCK),
@@ -135,6 +145,14 @@ static const struct bus_spi_dev_cfg spi1_cfg = {
     .pin_miso = MYNEWT_VAL(SPI_1_MASTER_PIN_MISO),
 };
 static struct bus_spi_hal_dev spi1_bus;
+#else
+static const struct nrf5340_hal_spi_cfg os_bsp_spi1m_cfg = {
+    .sck_pin      = MYNEWT_VAL(SPI_1_MASTER_PIN_SCK),
+    .mosi_pin     = MYNEWT_VAL(SPI_1_MASTER_PIN_MOSI),
+    .miso_pin     = MYNEWT_VAL(SPI_1_MASTER_PIN_MISO),
+    /* For SPI master, SS pin is controlled as regular GPIO */
+};
+#endif
 #endif
 #if MYNEWT_VAL(SPI_1_SLAVE)
 static const struct nrf5340_hal_spi_cfg os_bsp_spi1s_cfg = {
@@ -145,6 +163,7 @@ static const struct nrf5340_hal_spi_cfg os_bsp_spi1s_cfg = {
 };
 #endif
 #if MYNEWT_VAL(SPI_2_MASTER)
+#if MYNEWT_VAL(BUS_DRIVER_PRESENT)
 static const struct bus_spi_dev_cfg spi2_cfg = {
     .spi_num = 2,
     .pin_sck = MYNEWT_VAL(SPI_2_MASTER_PIN_SCK),
@@ -152,6 +171,14 @@ static const struct bus_spi_dev_cfg spi2_cfg = {
     .pin_miso = MYNEWT_VAL(SPI_2_MASTER_PIN_MISO),
 };
 static struct bus_spi_hal_dev spi2_bus;
+#else
+static const struct nrf5340_hal_spi_cfg os_bsp_spi2m_cfg = {
+    .sck_pin      = MYNEWT_VAL(SPI_2_MASTER_PIN_SCK),
+    .mosi_pin     = MYNEWT_VAL(SPI_2_MASTER_PIN_MOSI),
+    .miso_pin     = MYNEWT_VAL(SPI_2_MASTER_PIN_MISO),
+    /* For SPI master, SS pin is controlled as regular GPIO */
+};
+#endif
 #endif
 #if MYNEWT_VAL(SPI_2_SLAVE)
 static const struct nrf5340_hal_spi_cfg os_bsp_spi2s_cfg = {
@@ -162,6 +189,7 @@ static const struct nrf5340_hal_spi_cfg os_bsp_spi2s_cfg = {
 };
 #endif
 #if MYNEWT_VAL(SPI_3_MASTER)
+#if MYNEWT_VAL(BUS_DRIVER_PRESENT)
 static const struct bus_spi_dev_cfg spi3_cfg = {
     .spi_num = 3,
     .pin_sck = MYNEWT_VAL(SPI_3_MASTER_PIN_SCK),
@@ -169,6 +197,14 @@ static const struct bus_spi_dev_cfg spi3_cfg = {
     .pin_miso = MYNEWT_VAL(SPI_3_MASTER_PIN_MISO),
 };
 static struct bus_spi_hal_dev spi3_bus;
+#else
+static const struct nrf5340_hal_spi_cfg os_bsp_spi3m_cfg = {
+    .sck_pin      = MYNEWT_VAL(SPI_3_MASTER_PIN_SCK),
+    .mosi_pin     = MYNEWT_VAL(SPI_3_MASTER_PIN_MOSI),
+    .miso_pin     = MYNEWT_VAL(SPI_3_MASTER_PIN_MISO),
+    /* For SPI master, SS pin is controlled as regular GPIO */
+};
+#endif
 #endif
 #if MYNEWT_VAL(SPI_3_SLAVE)
 static const struct nrf5340_hal_spi_cfg os_bsp_spi3s_cfg = {
@@ -179,6 +215,7 @@ static const struct nrf5340_hal_spi_cfg os_bsp_spi3s_cfg = {
 };
 #endif
 #if MYNEWT_VAL(SPI_4_MASTER)
+#if MYNEWT_VAL(BUS_DRIVER_PRESENT)
 static const struct bus_spi_dev_cfg spi4_cfg = {
     .spi_num = 4,
     .pin_sck = MYNEWT_VAL(SPI_4_MASTER_PIN_SCK),
@@ -186,6 +223,14 @@ static const struct bus_spi_dev_cfg spi4_cfg = {
     .pin_miso = MYNEWT_VAL(SPI_4_MASTER_PIN_MISO),
 };
 static struct bus_spi_hal_dev spi4_bus;
+#else
+static const struct nrf5340_hal_spi_cfg os_bsp_spi4m_cfg = {
+    .sck_pin      = MYNEWT_VAL(SPI_4_MASTER_PIN_SCK),
+    .mosi_pin     = MYNEWT_VAL(SPI_4_MASTER_PIN_MOSI),
+    .miso_pin     = MYNEWT_VAL(SPI_4_MASTER_PIN_MISO),
+    /* For SPI master, SS pin is controlled as regular GPIO */
+};
+#endif
 #endif
 
 #if MYNEWT_VAL(I2C_0)
@@ -347,45 +392,70 @@ nrf5340_periph_create_spi(void)
     (void)rc;
 
 #if MYNEWT_VAL(SPI_0_MASTER)
+#if MYNEWT_VAL(BUS_DRIVER_PRESENT)
     rc = bus_spi_hal_dev_create("spi0",
                                 &spi0_bus, (struct bus_spi_dev_cfg *)&spi0_cfg);
     assert(rc == 0);
+#else
+    rc = hal_spi_init(0, (void *)&os_bsp_spi0m_cfg, HAL_SPI_TYPE_MASTER);
+    assert(rc == 0);
+#endif
 #endif
 #if MYNEWT_VAL(SPI_0_SLAVE)
     rc = hal_spi_init(0, (void *)&os_bsp_spi0s_cfg, HAL_SPI_TYPE_SLAVE);
     assert(rc == 0);
 #endif
 #if MYNEWT_VAL(SPI_1_MASTER)
+#if MYNEWT_VAL(BUS_DRIVER_PRESENT)
     rc = bus_spi_hal_dev_create("spi1", &spi1_bus,
                                 (struct bus_spi_dev_cfg *)&spi1_cfg);
     assert(rc == 0);
+#else
+    rc = hal_spi_init(1, (void *)&os_bsp_spi1m_cfg, HAL_SPI_TYPE_MASTER);
+    assert(rc == 0);
+#endif
 #endif
 #if MYNEWT_VAL(SPI_1_SLAVE)
     rc = hal_spi_init(1, (void *)&os_bsp_spi1s_cfg, HAL_SPI_TYPE_SLAVE);
     assert(rc == 0);
 #endif
 #if MYNEWT_VAL(SPI_2_MASTER)
+#if MYNEWT_VAL(BUS_DRIVER_PRESENT)
     rc = bus_spi_hal_dev_create("spi2", &spi2_bus,
                                 (struct bus_spi_dev_cfg *)&spi2_cfg);
     assert(rc == 0);
+#else
+    rc = hal_spi_init(2, (void *)&os_bsp_spi2m_cfg, HAL_SPI_TYPE_MASTER);
+    assert(rc == 0);
+#endif
 #endif
 #if MYNEWT_VAL(SPI_2_SLAVE)
     rc = hal_spi_init(2, (void *)&os_bsp_spi2s_cfg, HAL_SPI_TYPE_SLAVE);
     assert(rc == 0);
 #endif
 #if MYNEWT_VAL(SPI_3_MASTER)
+#if MYNEWT_VAL(BUS_DRIVER_PRESENT)
     rc = bus_spi_hal_dev_create("spi3", &spi3_bus,
                                 (struct bus_spi_dev_cfg *)&spi3_cfg);
     assert(rc == 0);
+#else
+    rc = hal_spi_init(3, (void *)&os_bsp_spi3m_cfg, HAL_SPI_TYPE_MASTER);
+    assert(rc == 0);
+#endif
 #endif
 #if MYNEWT_VAL(SPI_3_SLAVE)
     rc = hal_spi_init(3, (void *)&os_bsp_spi3s_cfg, HAL_SPI_TYPE_SLAVE);
     assert(rc == 0);
 #endif
 #if MYNEWT_VAL(SPI_4_MASTER)
+#if MYNEWT_VAL(BUS_DRIVER_PRESENT)
     rc = bus_spi_hal_dev_create("spi4", &spi4_bus,
                                 (struct bus_spi_dev_cfg *)&spi4_cfg);
     assert(rc == 0);
+#else
+    rc = hal_spi_init(4, (void *)&os_bsp_spi4m_cfg, HAL_SPI_TYPE_MASTER);
+    assert(rc == 0);
+#endif
 #endif
 }
 
