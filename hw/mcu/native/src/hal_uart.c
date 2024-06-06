@@ -131,7 +131,7 @@ uart_log_data(struct uart *u, int istx, uint8_t data)
         }
     }
     if (u && state.uart == NULL) {
-        len = snprintf(tmpbuf, sizeof(tmpbuf), "%u:uart%d %s\n\t%c (%02x) ",
+        len = snprintf(tmpbuf, sizeof(tmpbuf), "%u:uart%ld %s\n\t%c (%02x) ",
           now, u - uarts, istx ? "tx" : "rx", isalnum(data) ? data : '?', data);
         if (write(uart_log_fd, tmpbuf, len) != len) {
             assert(0);

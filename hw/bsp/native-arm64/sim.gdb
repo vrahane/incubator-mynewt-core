@@ -1,4 +1,3 @@
-#
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -17,7 +16,14 @@
 # under the License.
 #
 
-### Target: targets/unittest
-target.bsp: "@apache-mynewt-core/hw/bsp/native-arm64"
-target.build_profile: "debug"
-target.compiler: "@apache-mynewt-core/compiler/sim-arm64"
+define hook-stop
+handle SIGALRM nopass
+end
+
+define hook-run
+handle SIGALRM pass
+end
+
+define hook-continue
+handle SIGALRM pass
+end
