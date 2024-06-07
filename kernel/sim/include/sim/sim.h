@@ -53,18 +53,9 @@ void sim_tick_idle(os_time_t ticks);
  * as a macro rather than a function to ensure that it gets inlined, enforcing
  * a predictable call stack.
  */
-#define OS_PRINT_ASSERT_SIM(file, line, func, e) do                         \
-{                                                                           \
-    if (!(file)) {                                                          \
-        dprintf(1, "Assert @ 0x%x\n",                                       \
-                (unsigned int)__builtin_return_address(0));                 \
-    } else {                                                                \
-        dprintf(1, "Assert @ 0x%x - %s:%d\n",                               \
-                (unsigned int)__builtin_return_address(0),                  \
-                (file), (line));                                            \
-    }                                                                       \
-} while (0)
-
+#define OS_PRINT_ASSERT_SIM(file, line, func, e) \
+    printf("Assert failed: %s:%d: %s: %s, return address: %lu\n", \
+           file, line, func, e, (unsigned long)(uintptr_t)__builtin_return_address(0))
 #ifdef __cplusplus
 }
 #endif

@@ -17,33 +17,87 @@
  * under the License.
  */
 
+#if defined MN_LINUX
 #define sigsetjmp   __sigsetjmp
+#define CNAME(x)    x
+#elif defined MN_OSX
+#define sigsetjmp   sigsetjmp
+#define CNAME(x)    _ ## x
+#elif defined MN_FreeBSD
+#define sigsetjmp   sigsetjmp
+#define CNAME(x)    x
+#else
+#error "unsupported platform"
+#endif
 
     .text
-    .p2align 4, 0x90    /* align on 16-byte boundary and fill with NOPs */
+    .p2align 4, 0x90    // Align on 16-byte boundary and fill with NOPs
 
-    .globl os_arch_frame_init
-    .type  os_arch_frame_init, %function
+    .globl CNAME(os_arch_frame_init)
+    .globl _os_arch_frame_init
+
+/*
+ * void os_arch_frame_init(struct stack_frame *sf)
+ */
+CNAME(os_arch_frame_init):
+    stp x29, x30, [sp, #-16]!       // Save frame pointer and link register
+    mov x29, sp                     // Set frame pointer
+    stp x19, x20, [sp, #-16]!       // Save x19 and x20 (callee-saved registers)
+
     /*
-     * void os_arch_frame_init(struct stack_frame *sf)
+     * At this point we are executing on the main() stack:
+     * ----------------
+     * stack_frame ptr      0x10(sp)
+     * ----------------
+     * return address       0x8(sp)
+     * ----------------
+     * saved x29            0x0(sp)
+     * ----------------
      */
-os_arch_frame_init:
-    mov     x1, sp
-    mov     sp, x0                /* stack for the task starts from sf */
-    sub     sp, sp, #32           /* stack must be aligned by 16 */
-    str     x1, [sp, #16]
-    str     lr, [sp, #24]         /* Store LR there */
-    str     x0, [sp, #8]          /* Store sf pointer to stack */
-    add     x0, x0, #8            /* x0 = sf->sf_jb */
-    mov     x1, #0
-    bl      sigsetjmp
-    cbz     x0, end               /* If x0 == 0 then return */
-    mov     x1, x0
-    ldr     x0, [sp, #8]
-    and     sp, sp, #0xfffffffffffffff0
-    bl      os_arch_task_start
-end:
-    ldr     x1, [sp, #24]         /* return sp for the callee */
-    ldr     sp, [sp, #16]
-    mov     x30, x1
-    ret
+    ldr x19, [sp, #16]              // x19 = 'sf'
+    str x29, [x19]                  // sf->mainsp = x29
+
+    /*
+     * Switch the stack so the stack pointer stored in 'sf->sf_jb' points
+     * to the task stack. This is slightly complicated because ARM64 requires
+     * the stack pointer to be 16-byte aligned.
+     *
+     * ----------------
+     * sf (other fields)
+     * ----------------
+     * sf (sf_jb)           0x8(x19)
+     * ----------------
+     * sf (sf_mainsp)       0x0(x19)
+     * ----------------
+     * alignment padding    variable (0 to 12 bytes)
+     * ----------------
+     * savemask (0)         0x8(sp)
+     * ----------------
+     * pointer to sf_jb     0x0(sp)
+     * ----------------
+     */
+    mov x20, sp                     // Save current stack pointer in x20
+    sub sp, sp, #16                 // Make room for sigsetjmp() arguments
+    mov x9, sp                      // Copy sp to a temporary register
+    and x9, x9, #0xfffffff0         // Align x9 to a 16-byte boundary
+    mov sp, x9                      // Move the aligned value back to sp
+    add x0, x19, #8                 // x0 = &sf->sf_jb
+    mov x1, #0                      // x1 = 0 (savemask argument)
+    bl CNAME(sigsetjmp)             // sigsetjmp(sf->sf_jb, 0)
+    cbnz x0, 1f                     // If return value != 0, jump to label 1
+    ldr x29, [x19]                  // Restore main() stack pointer
+    mov sp, x29                     // Switch back to the main() stack
+    ldp x19, x20, [sp], #16         // Restore x19 and x20
+    ldp x29, x30, [sp], #16         // Restore frame pointer and link register
+    ret                             // Return to os_arch_task_stack_init()
+
+1:
+    adr x2, 2f                      // x2 = address of label 2
+    stp x2, xzr, [sp, #-16]!        // Push return address and frame pointer
+    mov x29, sp                     // Set frame pointer
+    stp x0, x19, [sp, #-16]!        // Push rc and sf
+    bl CNAME(os_arch_task_start)    // os_arch_task_start(sf, rc)
+    // Never returns
+
+2:
+    nop

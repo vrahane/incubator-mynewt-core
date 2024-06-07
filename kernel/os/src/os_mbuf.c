@@ -124,8 +124,8 @@ os_mbuf_get(struct os_mbuf_pool *omp, uint16_t leadingspace)
 {
     struct os_mbuf *om;
 
-    os_trace_api_u32x2(OS_TRACE_ID_MBUF_GET, (uint64_t)omp,
-                       (uint32_t)leadingspace);
+    os_trace_api_u32x2(OS_TRACE_ID_MBUF_GET, (uintptr_t)omp,
+                       (uintptr_t)leadingspace);
 
     if (leadingspace > omp->omp_databuf_len) {
         om = NULL;
@@ -145,7 +145,7 @@ os_mbuf_get(struct os_mbuf_pool *omp, uint16_t leadingspace)
     om->om_omp = omp;
 
 done:
-    os_trace_api_ret_u32(OS_TRACE_ID_MBUF_GET, (uint64_t)om);
+    os_trace_api_ret_u32(OS_TRACE_ID_MBUF_GET, (uintptr_t)om);
     return om;
 }
 
@@ -156,8 +156,8 @@ os_mbuf_get_pkthdr(struct os_mbuf_pool *omp, uint8_t user_pkthdr_len)
     struct os_mbuf_pkthdr *pkthdr;
     struct os_mbuf *om;
 
-    os_trace_api_u32x2(OS_TRACE_ID_MBUF_GET_PKTHDR, (uint64_t)omp,
-                       (uint32_t)user_pkthdr_len);
+    os_trace_api_u32x2(OS_TRACE_ID_MBUF_GET_PKTHDR, (uintptr_t)omp,
+                       (uintptr_t)user_pkthdr_len);
 
     /* User packet header must fit inside mbuf */
     pkthdr_len = user_pkthdr_len + sizeof(struct os_mbuf_pkthdr);
@@ -178,7 +178,7 @@ os_mbuf_get_pkthdr(struct os_mbuf_pool *omp, uint8_t user_pkthdr_len)
     }
 
 done:
-    os_trace_api_ret_u32(OS_TRACE_ID_MBUF_GET_PKTHDR, (uint64_t)om);
+    os_trace_api_ret_u32(OS_TRACE_ID_MBUF_GET_PKTHDR, (uintptr_t)om);
     return om;
 }
 
@@ -187,7 +187,7 @@ os_mbuf_free(struct os_mbuf *om)
 {
     int rc;
 
-    os_trace_api_u32(OS_TRACE_ID_MBUF_FREE, (uint64_t)om);
+    os_trace_api_u32(OS_TRACE_ID_MBUF_FREE, (uintptr_t)om);
 
     if (om->om_omp != NULL) {
         rc = os_memblock_put(om->om_omp->omp_pool, om);
@@ -199,7 +199,7 @@ os_mbuf_free(struct os_mbuf *om)
     rc = 0;
 
 done:
-    os_trace_api_ret_u32(OS_TRACE_ID_MBUF_FREE, (uint32_t)rc);
+    os_trace_api_ret_u32(OS_TRACE_ID_MBUF_FREE, (uintptr_t)rc);
     return (rc);
 }
 
@@ -209,7 +209,7 @@ os_mbuf_free_chain(struct os_mbuf *om)
     struct os_mbuf *next;
     int rc;
 
-    os_trace_api_u32(OS_TRACE_ID_MBUF_FREE_CHAIN, (uint64_t)om);
+    os_trace_api_u32(OS_TRACE_ID_MBUF_FREE_CHAIN, (uintptr_t)om);
 
     while (om != NULL) {
         next = SLIST_NEXT(om, om_next);
@@ -225,7 +225,7 @@ os_mbuf_free_chain(struct os_mbuf *om)
     rc = 0;
 
 done:
-    os_trace_api_ret_u32(OS_TRACE_ID_MBUF_FREE_CHAIN, (uint32_t)rc);
+    os_trace_api_ret_u32(OS_TRACE_ID_MBUF_FREE_CHAIN, (uintptr_t)rc);
     return (rc);
 }
 
