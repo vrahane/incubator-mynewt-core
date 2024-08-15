@@ -17,6 +17,8 @@
  * under the License.
  */
 
+#include <os/mynewt.h>
+#if !MYNEWT_VAL(FAULT_STUB)
 #include <assert.h>
 #include <string.h>
 #include "base64/base64.h"
@@ -108,3 +110,4 @@ fault_conf_init(void)
 {
     return conf_register(&fault_conf_handler);
 }
+#endif

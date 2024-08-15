@@ -24,10 +24,12 @@ pkg.keywords:
     - fault
 
 pkg.deps:
+    - "@apache-mynewt-core/util/debounce"
+
+pkg.deps.!FAULT_STUB:
     - "@apache-mynewt-core/encoding/base64"
     - "@apache-mynewt-core/kernel/os"
     - "@apache-mynewt-core/sys/config"
-    - "@apache-mynewt-core/util/debounce"
 
 pkg.deps.FAULT_CLI:
     - "@apache-mynewt-core/sys/fault/fault_cli"

@@ -43,6 +43,11 @@ tinyusb_device_task(void *param)
 {
     (void)param;
 
+#if MYNEWT_VAL(BOOT_LOADER)
+    tud_task();
+    return;
+#endif
+
     while (1) {
 #if !MYNEWT_VAL(OS_SCHEDULING) && MYNEWT_VAL(WATCHDOG_INTERVAL)
         hal_watchdog_tickle();
