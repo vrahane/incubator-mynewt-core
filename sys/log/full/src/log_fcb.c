@@ -204,6 +204,7 @@ log_fcb_start_append(struct log *log, int len, struct fcb_entry *loc)
     struct fcb *fcb;
     struct fcb_log *fcb_log;
     struct flash_area *old_fa;
+    int active_sector_cnt = 0;
     int rc = 0;
 #if MYNEWT_VAL(LOG_STATS)
     int cnt;
@@ -212,6 +213,8 @@ log_fcb_start_append(struct log *log, int len, struct fcb_entry *loc)
     fcb_log = (struct fcb_log *)log->l_arg;
     fcb = &fcb_log->fl_fcb;
 
+    /* Cache sector count before appending */
+    active_sector_cnt = fcb->f_active_id;
     while (1) {
         rc = fcb_append(fcb, len, loc);
         if (rc == 0) {
@@ -267,6 +270,13 @@ log_fcb_start_append(struct log *log, int len, struct fcb_entry *loc)
             fcb_log->fl_watermark_off = fcb->f_oldest->fa_off;
         }
 #endif
+    }
+
+    /* Add bookmark if entry is added to a new sector */
+    if (!rc) {
+        if (active_sector_cnt > fcb->f_active_id) {
+            log_fcb_add_bmark(fcb_log, &loc, ueh.ue_index);
+        }
     }
 
 err:

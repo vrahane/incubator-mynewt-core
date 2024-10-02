@@ -25,6 +25,49 @@
 
 #include "log/log_fcb.h"
 
+static void
+log_fcb_init_sector_bmarks(struct fcb_log *fcb_log)
+{
+    int rc = 0;
+    struct log_storage_info info = {0};
+    struct fcb_entry loc = {0};
+    struct flash_area *fe_area = NULL;
+    struct log_entry_hdr ueh;
+
+    rc = log_storage_info(fcb_log, &info);
+    if (rc) {
+        return SYS_ENOENT;
+    }
+
+    rc = fcb_getnext(fcb_log->fl_fcb, &loc);
+    if (rc) {
+        return -1;
+    }
+
+    for (i = 0; i < info.used/fcb_log->fl_fcb->f_sector_cnt; i++) {
+        rc = log_read_hdr(log, loc, &ueh);
+        if (rc != sizeof(ueh)) {
+            /* Read failed, don't add a bookmark, done adding bookmarks */
+            rc = SYS_EOK;
+            break;
+        }
+
+        log_fcb_add_bmark(fcb_log, &loc, ueh.ue_index);
+
+        rc = fcb_getnext_area(fcb_log->fl_fcb, loc.fe_area);
+        if (rc) {
+            break;
+        }
+
+        rc = fcb_getnext_in_area(fcb_log->fl_fcb, &loc);
+        if (rc) {
+            break;
+        }
+    }
+
+    return rc;
+}
+
 void
 log_fcb_init_bmarks(struct fcb_log *fcb_log,
                     struct log_fcb_bmark *buf, int bmark_count)
@@ -33,6 +76,8 @@ log_fcb_init_bmarks(struct fcb_log *fcb_log,
         .lfs_bmarks = buf,
         .lfs_cap = bmark_count,
     };
+
+    log_fcb_init_sector_bmarks(fcb_log);
 }
 
 void
