@@ -106,6 +106,13 @@ shell_log_dump_entry(struct log *log, struct log_offset *log_offset,
         data[rc] = 0;
     }
 
+    if (log->l_log->log_type == LOG_TYPE_STORAGE) {
+        const struct fcb_entry *loc = dptr;
+        console_printf("fa: %x feo: %lu fdo: %lu fdl: %u ",
+                       (uintptr_t)loc->fe_area, loc->fe_elem_off,
+                       loc->fe_data_off, loc->fe_data_len);
+    }
+
     /* When LOG_CONSOLE_PRETTY is set use same function to dump log header that
      * is used when logs are printed in real time */
     if (MYNEWT_VAL(LOG_CONSOLE_PRETTY)) {

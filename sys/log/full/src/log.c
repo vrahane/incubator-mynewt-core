@@ -248,7 +248,7 @@ log_module_get_name(uint8_t module)
     }
 
     /* Find module defined in syscfg.logcfg sections */
-    name = logcfg_log_module_name(module);
+    name = log_module_get_name(module);
 
     if (name == NULL) {
         /* not in syscfg.logcfg, find module registered with log_module_register() */
