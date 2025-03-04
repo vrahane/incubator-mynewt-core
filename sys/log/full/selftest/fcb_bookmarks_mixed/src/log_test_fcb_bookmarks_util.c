@@ -260,7 +260,7 @@ void
 ltfbu_test_once(const struct ltfbu_cfg *cfg)
 {
     uint32_t start_idx;
-    int i;
+    int i = 0;
     int rc = 0;
 
     ltfbu_init(cfg);
@@ -286,11 +286,13 @@ ltfbu_test_once(const struct ltfbu_cfg *cfg)
         TEST_ASSERT_FATAL(rc == 0);
     }
 
-    for (i = 0; i < 6; i++) {
+    do {
         start_idx = 0;
         while (start_idx < ltfbu_entry_idxs[ltfbu_num_entry_idxs - 1]) {
             ltfbu_verify_log(start_idx);
             start_idx += ltfbu_skip_amount() + 1;
         }
-    }
+        ltfbu_populate_log(cfg->pop_count);
+	i++;
+    } while (i < 6);
 }
