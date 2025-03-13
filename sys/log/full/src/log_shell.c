@@ -39,6 +39,41 @@
 #include "tinycbor/compilersupport_p.h"
 #include "log_cbor_reader/log_cbor_reader.h"
 
+<<<<<<< HEAD
+=======
+void log_console_print_hdr(const struct log_entry_hdr *hdr);
+
+static uint32_t shell_log_count;
+
+
+struct walk_arg {
+    /* Number of entries to skip */
+    uint32_t skip;
+    /* Number of entries to process */
+    uint32_t count_limit;
+    /* Entry number */
+    uint32_t count;
+    /* Entry index */
+    uint32_t idx;
+};
+
+static int
+shell_log_count_entry(struct log *log, struct log_offset *log_offset,
+                      const struct log_entry_hdr *ueh, const void *dptr, uint16_t len)
+{
+    struct walk_arg *arg = (struct walk_arg *)log_offset->lo_arg;
+
+    shell_log_count++;
+    if (arg) {
+        arg->count++;
+        if ((arg->count_limit > 0) && (arg->count >= arg->count_limit)) {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
 static int
 shell_log_dump_entry(struct log *log, struct log_offset *log_offset,
                      const struct log_entry_hdr *ueh, const void *dptr, uint16_t len)
@@ -113,15 +148,81 @@ shell_log_dump_cmd(int argc, char **argv)
     bool stream;
     bool partial_match = false;
     bool clear_log;
+<<<<<<< HEAD
+=======
+    bool reverse = false;
+    bool dump_logs = true;
+    bool dump_bmarks = false;
+    uint32_t bmarks_size = 0;
+    struct log_fcb_bmark *bmarks = NULL;
+    struct walk_arg arg = {};
+>>>>>>> 597956000 (sys/log: Add optional support for sector bookmarks to optimize reading logs)
     int i;
-    int rc;
+    int rc = 0;
+    int start = -1;
+    int end = -1;
 
     clear_log = false;
+    (void)dump_bmarks;
+    (void)bmarks;
+    (void)bmarks_size;
+    (void)start;
+    (void)end;
+
     for (i = 1; i < argc; ++i) {
         if (0 == strcmp(argv[i], "-l")) {
             list_only = true;
             break;
         }
+<<<<<<< HEAD
+=======
+        if (0 == strcmp(argv[i], "-n")) {
+            if (i + 1 < argc) {
+                arg.count_limit = parse_ll_bounds(argv[i + 1], 1, 1000000, &rc);
+                if (rc) {
+                    arg.count_limit = 1;
+                }
+                log_offset.lo_arg = &arg;
+            }
+            ++i;
+            continue;
+        }
+        if (0 == strcmp(argv[i], "-s")) {
+            if (i + 1 < argc) {
+                arg.skip = parse_ll_bounds(argv[i + 1], 0, 1000000, &rc);
+                if (rc) {
+                    arg.skip = 0;
+                }
+                log_offset.lo_arg = &arg;
+            }
+            ++i;
+            continue;
+        }
+        if (0 == strcmp(argv[i], "-t")) {
+            dump_logs = false;
+            continue;
+        }
+        if (0 == strcmp(argv[i], "-b")) {
+            dump_logs = false;
+            dump_bmarks = true;
+            continue;
+        }
+        if (0 == strcmp(argv[i], "-i")) {
+            if (i + 1 < argc) {
+                arg.idx = parse_ll_bounds(argv[i + 1], 0, UINT32_MAX, &rc);
+                if (rc) {
+                    arg.idx = 0;
+                }
+                log_offset.lo_arg = &arg;
+            }
+            ++i;
+            continue;
+        }
+        if (0 == strcmp(argv[i], "-r")) {
+            reverse = true;
+            continue;
+        }
+>>>>>>> 597956000 (sys/log: Add optional support for sector bookmarks to optimize reading logs)
 
         /* the -c option is to clear a log (or logs). */
         if (!strcmp(argv[i], "-c")) {
@@ -161,6 +262,57 @@ shell_log_dump_cmd(int argc, char **argv)
             continue;
         }
 
+#if MYNEWT_VAL(LOG_FCB_BOOKMARKS)
+        if (dump_bmarks) {
+            bmarks = log_fcb_get_bmarks(log, &bmarks_size);
+            for (i = 0; i < bmarks_size; i++) {
+#if MYNEWT_VAL(LOG_FCB)
+                if (!bmarks[i].lfb_entry.fe_area) {
+                    if (start == -1) {
+                        start = i;
+                    }
+                    end = i;
+                    continue;
+                }
+                if (start != -1) {
+                    console_printf("bookmarks unused: %d to %d\n", start, end);
+                    start = -1;
+                    end = -1;
+                }
+                console_printf("%u: index:%lu fa_off:%x fe_elem_off:%lx\n", i,
+                               bmarks[i].lfb_index,
+                               (uintptr_t)bmarks[i].lfb_entry.fe_area->fa_off,
+                               bmarks[i].lfb_entry.fe_elem_off);
+#else
+                if (!bmarks[i].lfb_entry.fe_range) {
+                    if (start == -1) {
+                        start = i;
+                    }
+                    end = i;
+                    continue;
+                }
+                if (start != -1) {
+                    console_printf("bookmarks unused: %d to %d\n", start, end);
+                    start = -1;
+                    end = -1;
+                }
+                console_printf("%u: index:%lu fa_off:%x fe_sector:%x fe_data_off:%lx\n", i,
+                               bmarks[i].lfb_index,
+                               (uintptr_t)bmarks[i].lfb_entry.fe_range->fsr_flash_area.fa_off,
+                               (uintptr_t)bmarks[i].lfb_entry.fe_sector,
+                               bmarks[i].lfb_entry.fe_data_off);
+#endif
+            }
+
+            if (start != -1) {
+                console_printf("bookmarks unused: %d to %d\n", start, end);
+                start = -1;
+                end = -1;
+            }
+            goto err;
+        }
+#endif
+
         if (clear_log) {
             console_printf("Clearing log %s\n", log->l_name);
             rc = log_flush(log);
@@ -180,7 +332,20 @@ shell_log_dump_cmd(int argc, char **argv)
             }
             log_offset.lo_data_len = 0;
 
-            rc = log_walk_body(log, shell_log_dump_entry, &log_offset);
+            if (dump_logs) {
+                arg.count = 0;
+                log_offset.lo_index = arg.idx;
+                rc = log_walk_body(log, shell_log_dump_entry, &log_offset);
+            } else if (!dump_bmarks) {
+                /* Measure time for log_walk */
+                shell_log_count = 0;
+                os_time_t start = os_time_get();
+                log_offset.lo_index = arg.idx;
+                rc = log_walk_body(log, shell_log_count_entry, &log_offset);
+                os_time_t end = os_time_get();
+                console_printf("Log %s %d entries walked in %d ms\n", log->l_name,
+                               (int)shell_log_count, (int)os_time_ticks_to_ms32(end - start));
+            }
             if (rc != 0) {
                 goto err;
             }

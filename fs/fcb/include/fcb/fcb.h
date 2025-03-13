@@ -103,6 +103,42 @@ int fcb_walk(struct fcb *, struct flash_area *, fcb_walk_cb cb, void *cb_arg);
 int fcb_getnext(struct fcb *, struct fcb_entry *loc);
 
 /**
+ * Get first entry in the provided flash area
+ *
+ * @param fcb Pointer to FCB
+ * @param fap Optional pointer to flash area
+ * @param loc Pointer to first FCB entry in the provided flash area
+ *
+ * @return 0 on success, non-zero on failure
+ */
+int fcb_getnext_in_area(struct fcb *fcb, struct flash_area *fap,
+                        struct fcb_entry *loc);
+
+/**
+ * Get next area pointer from the FCB pointer
+ *
+ * @param fcb Pointer to the FCB
+ * @param fap Pointer to the flash_area
+ *
+ * @return Pointer to the flash_area that comes next
+ */
+struct flash_area *fcb_getnext_area(struct fcb *fcb, struct flash_area *fap);
+
+#if MYNEWT_VAL_FCB_BIDIRECTIONAL
+/**
+ * Call 'cb' for every element in flash circular buffer moving
+ * from the newest to oldest entries.
+ *
+ * @param fcb - fcb to walk through
+ * @param cb - function to call for each entry
+ * @param cb_arg - argument to pass to cb
+ * @return 0 after whole buffer was traversed
+ *         non zero value if cb requested termination of the walk
+ */
+int fcb_walk_back(struct fcb *fcb, fcb_walk_cb cb, void *cb_arg);
+#endif
+
+/**
  * Erases the data from oldest sector.
  */
 int fcb_rotate(struct fcb *);
