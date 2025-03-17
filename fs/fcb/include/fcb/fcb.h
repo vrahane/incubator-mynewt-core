@@ -44,6 +44,7 @@ extern "C" {
  */
 struct fcb_entry {
     struct flash_area *fe_area;	/* ptr to area within fcb->f_sectors */
+    uint32_t fe_elem_ix;	/* index of entry */
     uint32_t fe_elem_off;	/* start of entry */
     uint32_t fe_data_off;	/* start of data */
     uint16_t fe_data_len;	/* size of data area */

@@ -617,7 +617,6 @@ log_fcb_walk_impl(struct log *log, log_walk_func_t walk_func,
     struct fcb_entry loc;
     struct flash_area *fap;
     int rc;
-    struct fcb_entry_cache cache;
     int min_diff = -1;
 
     fcb_log = log->l_arg;

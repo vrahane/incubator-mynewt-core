@@ -39,8 +39,6 @@
 #include "tinycbor/compilersupport_p.h"
 #include "log_cbor_reader/log_cbor_reader.h"
 
-<<<<<<< HEAD
-=======
 void log_console_print_hdr(const struct log_entry_hdr *hdr);
 
 static uint32_t shell_log_count;
@@ -148,15 +146,11 @@ shell_log_dump_cmd(int argc, char **argv)
     bool stream;
     bool partial_match = false;
     bool clear_log;
-<<<<<<< HEAD
-=======
-    bool reverse = false;
     bool dump_logs = true;
     bool dump_bmarks = false;
     uint32_t bmarks_size = 0;
     struct log_fcb_bmark *bmarks = NULL;
     struct walk_arg arg = {};
->>>>>>> 597956000 (sys/log: Add optional support for sector bookmarks to optimize reading logs)
     int i;
     int rc = 0;
     int start = -1;
@@ -174,8 +168,6 @@ shell_log_dump_cmd(int argc, char **argv)
             list_only = true;
             break;
         }
-<<<<<<< HEAD
-=======
         if (0 == strcmp(argv[i], "-n")) {
             if (i + 1 < argc) {
                 arg.count_limit = parse_ll_bounds(argv[i + 1], 1, 1000000, &rc);
@@ -218,11 +210,6 @@ shell_log_dump_cmd(int argc, char **argv)
             ++i;
             continue;
         }
-        if (0 == strcmp(argv[i], "-r")) {
-            reverse = true;
-            continue;
-        }
->>>>>>> 597956000 (sys/log: Add optional support for sector bookmarks to optimize reading logs)
 
         /* the -c option is to clear a log (or logs). */
         if (!strcmp(argv[i], "-c")) {
