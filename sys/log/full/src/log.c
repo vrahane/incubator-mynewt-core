@@ -719,6 +719,7 @@ log_append_typed(struct log *log, uint8_t module, uint8_t level, uint8_t etype,
     rc = log->l_log->log_append(log, data, len + log_hdr_len(hdr));
     if (rc != 0) {
         LOG_STATS_INC(log, errs);
+        assert(0);
         goto err;
     }
 
@@ -759,6 +760,7 @@ log_append_body(struct log *log, uint8_t module, uint8_t level, uint8_t etype,
     rc = log->l_log->log_append_body(log, &hdr, body, body_len);
     if (rc != 0) {
         LOG_STATS_INC(log, errs);
+        assert(0);
         goto err;
     }
 
@@ -852,6 +854,7 @@ log_append_mbuf_typed_no_free(struct log *log, uint8_t module, uint8_t level,
 
 err:
     LOG_STATS_INC(log, errs);
+    assert(0);
 drop:
 #if MYNEWT_VAL(LOG_FLAGS_TRAILER)
     log_trailer_free(log, log->l_tr_om, log->l_tr_arg);
@@ -919,6 +922,7 @@ log_append_mbuf_body_no_free(struct log *log, uint8_t module, uint8_t level,
     return 0;
 err:
     LOG_STATS_INC(log, errs);
+    assert(0);
 drop:
 #if MYNEWT_VAL(LOG_FLAGS_TRAILER)
     log_trailer_free(log, log->l_tr_om, log->l_tr_arg);
