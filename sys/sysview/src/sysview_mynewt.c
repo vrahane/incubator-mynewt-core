@@ -141,7 +141,7 @@ sysview_init(void)
                         &sysview_os_api, sysview_os_api_send_sys_desc_func);
     SEGGER_SYSVIEW_SetRAMBase(SYSVIEW_RAM_BASE);
 
-#if MYNEWT_VAL(SYSVIEW_POST_MORTEM)
+#if MYNEWT_VAL(SYSVIEW_POST_MORTEM) && MYNEWT_VAL(SYSVIEW_AUTO_START)
     SEGGER_SYSVIEW_Start();
 #endif
 }

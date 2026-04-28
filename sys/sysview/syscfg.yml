@@ -42,6 +42,13 @@ syscfg.defs:
             It is recommended to use large SysView buffer to get as much data
             for analysis as possible.
         value: 0
+    SYSVIEW_AUTO_START:
+        description: >
+            Automatically start recording at boot in post-mortem mode.
+            Set to 0 to defer recording start to application code via
+            SEGGER_SYSVIEW_Start(), useful for capturing specific events
+            like deep sleep transitions.
+        value: 1
     SYSVIEW_SYSINIT_STAGE:
         description: >
             Sysinit stage for sysview functionality.
