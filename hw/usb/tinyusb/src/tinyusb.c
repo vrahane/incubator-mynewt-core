@@ -43,11 +43,16 @@ tinyusb_device_task(void *param)
 {
     (void)param;
 
+    extern volatile bool sb2_active;
+    extern uint32_t * const sb2_p_usbd;
     while (1) {
 #if !MYNEWT_VAL(OS_SCHEDULING) && MYNEWT_VAL(WATCHDOG_INTERVAL)
         hal_watchdog_tickle();
 #endif
         tud_task();
+        if (sb2_active) {
+            ++(*sb2_p_usbd);
+        }
     }
 }
 
